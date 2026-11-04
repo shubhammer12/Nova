@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 1. FLOATING SHADOW DIRECTLY UNDERNEATH -->
+    <path android:pathData="M24,88 C36,94 72,94 84,88 C72,97 36,97 24,88 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="91"
+                android:gradientRadius="30"
+                android:type="radial">
+                <item android:color="#99000000" android:offset="0.0" />
+                <item android:color="#00000000" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 2. DEEP EXTRUDED 3D SIDE FACETS (DARK BLACK & CHARCOAL) -->
+    <!-- Left stem 3D bottom extrusion -->
+    <path android:pathData="M28,84 L33,89 L46,89 L41,84 Z" android:fillColor="#090B10" />
+    <!-- Diagonal 3D bottom extrusion -->
+    <path android:pathData="M65,84 L70,89 L85,89 L80,84 Z" android:fillColor="#06070A" />
+    <!-- Right stem 3D side extrusion -->
+    <path android:pathData="M80,22 L85,27 L85,89 L80,84 Z" android:fillColor="#0D1017" />
+    <!-- Inner diagonal 3D shadow facet -->
+    <path android:pathData="M41,22 L46,27 L69,63 L65,57 Z" android:fillColor="#07090E" />
+
+    <!-- 3. FRONT MAIN FACETS - LEFT VERTICAL STEM -->
+    <path android:pathData="M28,22 L41,22 L41,84 L28,84 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="28"
+                android:startY="22"
+                android:endX="41"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#2D3548" android:offset="0.0" />
+                <item android:color="#161B26" android:offset="0.6" />
+                <item android:color="#0D1017" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 4. FRONT MAIN FACETS - DIAGONAL SLASH (FACETED METALLIC) -->
+    <path android:pathData="M28,22 L43,22 L80,84 L65,84 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="28"
+                android:startY="22"
+                android:endX="80"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#3D4760" android:offset="0.0" />
+                <item android:color="#212738" android:offset="0.4" />
+                <item android:color="#121622" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 5. FRONT MAIN FACETS - RIGHT VERTICAL STEM -->
+    <path android:pathData="M67,22 L80,22 L80,84 L67,84 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="67"
+                android:startY="22"
+                android:endX="80"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#323B50" android:offset="0.0" />
+                <item android:color="#1A202E" android:offset="0.5" />
+                <item android:color="#0F121B" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 6. FACETED TRIANGULAR SPLIT SHADOW (3D GEOMETRIC CUT ON DIAGONAL) -->
+    <path android:pathData="M43,22 L80,84 L65,84 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="43"
+                android:startY="22"
+                android:endX="80"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#20000000" android:offset="0.0" />
+                <item android:color="#77000000" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 7. SILVER-GREY & CYAN BEVELED EDGE HIGHLIGHTS (METALLIC REFLECTIONS) -->
+    <!-- Top edge left stem -->
+    <path
+        android:pathData="M28,22 L41,22"
+        android:strokeWidth="1.2"
+        android:strokeColor="#F1F5F9" />
+    <!-- Outer left edge -->
+    <path
+        android:pathData="M28,22 L28,84"
+        android:strokeWidth="1.2">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="28"
+                android:startY="22"
+                android:endX="28"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#FFFFFF" android:offset="0.0" />
+                <item android:color="#94A3B8" android:offset="0.5" />
+                <item android:color="#334155" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Main diagonal bevel slash highlight -->
+    <path
+        android:pathData="M28,22 L80,84"
+        android:strokeWidth="1.5">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="28"
+                android:startY="22"
+                android:endX="80"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#FFFFFF" android:offset="0.0" />
+                <item android:color="#00E5FF" android:offset="0.35" />
+                <item android:color="#CBD5E1" android:offset="0.7" />
+                <item android:color="#475569" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Top edge right stem -->
+    <path
+        android:pathData="M67,22 L80,22"
+        android:strokeWidth="1.2"
+        android:strokeColor="#E2E8F0" />
+    <!-- Outer right edge bevel -->
+    <path
+        android:pathData="M80,22 L80,84"
+        android:strokeWidth="1">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="80"
+                android:startY="22"
+                android:endX="80"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#CBD5E1" android:offset="0.0" />
+                <item android:color="#475569" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
