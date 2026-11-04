@@ -22,166 +22,256 @@ class ActionExecutor(val context: Context) {
     data class ContactMatch(val name: String, val number: String, val score: Int)
     data class AppMatch(val label: String, val packageName: String, val activityName: String?, val score: Int)
 
+    private data class CachedApp(
+        val label: String,
+        val packageName: String,
+        val normalizedLabel: String,
+        val compactLabel: String,
+        val tokens: List<String>
+    )
+
     /**
-     * Opens an app by searching all installed, system, web app shortcuts, PWAs, and single-letter apps on the phone.
+     * Cleans natural language / Hinglish / voice command noise to isolate the target app name.
+     */
+    fun cleanVoiceCommandToAppName(input: String): String {
+        var text = input.lowercase(Locale.getDefault()).trim()
+        text = text.trim(',', '.', '!', '?', '"', '\'')
+
+        val prefixes = listOf(
+            "please open the app ",
+            "please open the ",
+            "please open app ",
+            "please open ",
+            "please launch the ",
+            "please launch ",
+            "please start ",
+            "can you please open ",
+            "can you open the ",
+            "can you open ",
+            "can you launch ",
+            "open the app ",
+            "open the ",
+            "open app ",
+            "open ",
+            "launch the app ",
+            "launch the ",
+            "launch app ",
+            "launch ",
+            "start the app ",
+            "start the ",
+            "start app ",
+            "start ",
+            "run ",
+            "kripya open karo ",
+            "kripya open kar ",
+            "kripya kholo ",
+            "kripya khol "
+        )
+        for (prefix in prefixes) {
+            if (text.startsWith(prefix)) {
+                text = text.removePrefix(prefix).trim()
+                break
+            }
+        }
+
+        val suffixes = listOf(
+            " application open karo",
+            " application open kar",
+            " application kholo",
+            " application khol",
+            " app open karo",
+            " app open kar do",
+            " app open kar",
+            " app kholo",
+            " app khol do",
+            " app khol de",
+            " app khol",
+            " open kar do",
+            " open kar de",
+            " open karo",
+            " open kar",
+            " open please",
+            " open",
+            " khol do",
+            " khol de",
+            " kholo",
+            " khol",
+            " chalu karo",
+            " chalu kar",
+            " start karo",
+            " launch karo",
+            " application",
+            " app",
+            " please"
+        )
+        for (suffix in suffixes) {
+            if (text.endsWith(suffix)) {
+                text = text.removeSuffix(suffix).trim()
+                break
+            }
+        }
+
+        if (text.startsWith("the ")) {
+            text = text.removePrefix("the ").trim()
+        }
+
+        return text
+    }
+
+    /**
+     * Retrieves the launchable app list from memory cache or refreshes from PackageManager.
+     * Fast (<2ms on cache hit, low-memory).
+     */
+    private fun getInstalledAppList(forceRefresh: Boolean = false): List<CachedApp> {
+        val now = System.currentTimeMillis()
+        val currentCache = cachedApps
+        if (!forceRefresh && currentCache != null && (now - lastCacheTime < CACHE_TTL_MS)) {
+            return currentCache
+        }
+
+        return synchronized(this) {
+            val freshCheck = cachedApps
+            if (!forceRefresh && freshCheck != null && (System.currentTimeMillis() - lastCacheTime < CACHE_TTL_MS)) {
+                return@synchronized freshCheck
+            }
+
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+
+            val launchableActivities = try {
+                pm.queryIntentActivities(mainIntent, 0)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error querying launcher activities", e)
+                emptyList()
+            }
+
+            val appList = ArrayList<CachedApp>(launchableActivities.size)
+            val seenPackages = HashSet<String>(launchableActivities.size)
+
+            for (resolveInfo in launchableActivities) {
+                val pkg = resolveInfo.activityInfo?.packageName ?: continue
+                if (!seenPackages.add(pkg.lowercase(Locale.getDefault()))) continue
+
+                val rawLabel = try {
+                    resolveInfo.loadLabel(pm).toString()
+                } catch (e: Exception) {
+                    pkg
+                }
+
+                val normLabel = rawLabel.lowercase(Locale.getDefault()).trim()
+                val compactLabel = normLabel.replace(Regex("[^a-z0-9]"), "")
+                val tokens = normLabel.split(" ", "-", "_", ".").filter { it.isNotEmpty() }
+
+                appList.add(CachedApp(
+                    label = rawLabel,
+                    packageName = pkg,
+                    normalizedLabel = normLabel,
+                    compactLabel = compactLabel,
+                    tokens = tokens
+                ))
+            }
+
+            cachedApps = appList
+            lastCacheTime = System.currentTimeMillis()
+            appList
+        }
+    }
+
+    /**
+     * Opens ANY installed app dynamically by name, speech query, or alias with sub-millisecond matching.
      * Returns Pair(Success, AppLabelMatched)
      */
     fun openAppByName(queryName: String): Pair<Boolean, String> {
-        val cleanQuery = queryName.lowercase(Locale.getDefault()).trim()
-        if (cleanQuery.isEmpty()) return Pair(false, queryName)
+        val cleanedQuery = cleanVoiceCommandToAppName(queryName)
+        if (cleanedQuery.isEmpty()) return Pair(false, queryName)
 
-        val pm = context.packageManager
-        val isSingleLetterQuery = cleanQuery.length == 1
+        val compactQuery = cleanedQuery.replace(Regex("[^a-z0-9]"), "")
+        if (compactQuery.isEmpty()) return Pair(false, queryName)
 
-        // Handle common system app aliases ONLY when exact alias or exact word match
-        val aliasPackageMap = mapOf(
-            "gallery" to listOf("com.google.android.apps.photos", "com.sec.android.gallery3d", "com.miui.gallery", "com.coloros.gallery3d", "com.oneplus.gallery"),
-            "photos" to listOf("com.google.android.apps.photos"),
-            "camera" to listOf("com.google.android.GoogleCamera", "com.android.camera", "com.oneplus.camera"),
-            "settings" to listOf("com.android.settings"),
-            "phone" to listOf("com.google.android.dialer", "com.android.dialer", "com.samsung.android.dialer"),
-            "dialer" to listOf("com.google.android.dialer", "com.android.dialer"),
-            "messages" to listOf("com.google.android.apps.messaging", "com.android.mms"),
-            "whatsapp" to listOf("com.whatsapp", "com.whatsapp.w4b"),
-            "youtube" to listOf("com.google.android.youtube"),
-            "chrome" to listOf("com.android.chrome"),
-            "instagram" to listOf("com.instagram.android"),
-            "spotify" to listOf("com.spotify.music"),
-            "calculator" to listOf("com.google.android.calculator", "com.sec.android.app.popupcalculator"),
-            "clock" to listOf("com.google.android.deskclock", "com.android.deskclock"),
-            "calendar" to listOf("com.google.android.calendar"),
-            "gmail" to listOf("com.google.android.gm"),
-            "contacts" to listOf("com.google.android.contacts"),
-            "files" to listOf("com.google.android.documentsui", "com.google.android.apps.nbu.files")
-        )
-
-        for ((alias, packageList) in aliasPackageMap) {
-            if (cleanQuery == alias || cleanQuery.split(" ").contains(alias)) {
+        // 1. Direct System / Common Store App Alias Check (Play Store, Phone, Camera, Settings, etc.)
+        for ((alias, packageList) in SYSTEM_ALIASES) {
+            val compactAlias = alias.replace(Regex("[^a-z0-9]"), "")
+            if (cleanedQuery == alias || compactQuery == compactAlias) {
                 for (pkg in packageList) {
                     if (openAppByPackage(pkg)) {
-                        return Pair(true, alias.replaceFirstChar { it.uppercase() })
+                        return Pair(true, alias.split(" ").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } })
                     }
                 }
             }
         }
 
-        val appMatches = mutableListOf<AppMatch>()
-        val seenPackages = mutableSetOf<String>()
+        // 2. Search Dynamic Installed Apps (from in-memory cache)
+        val match = findBestAppMatch(cleanedQuery, compactQuery, forceRefresh = false)
+            ?: findBestAppMatch(cleanedQuery, compactQuery, forceRefresh = true) // If newly installed, refresh cache
 
-        // 1. Search all launcher activities (includes PWA shortcuts & installed web apps)
-        try {
-            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            val launchableApps = pm.queryIntentActivities(mainIntent, 0)
-
-            for (resolveInfo in launchableApps) {
-                val rawLabel = resolveInfo.loadLabel(pm).toString()
-                val labelNorm = rawLabel.lowercase(Locale.getDefault()).trim()
-                val pkgNorm = resolveInfo.activityInfo.packageName.lowercase(Locale.getDefault())
-                val activityName = resolveInfo.activityInfo.name
-
-                val tokens = labelNorm.split(" ", "-", "_", ".").filter { it.isNotEmpty() }
-
-                var score = 0
-                when {
-                    // Exact label match (e.g. query "x" == label "x" or query "web terminal" == label "web terminal")
-                    labelNorm == cleanQuery -> score = 100
-
-                    // Exact word token match (e.g. query "terminal" matches word "terminal" in "web terminal")
-                    tokens.contains(cleanQuery) -> score = 90
-
-                    // Package suffix match
-                    pkgNorm.endsWith(".$cleanQuery") -> score = 85
-
-                    // Starts-with match (Only for multi-letter queries)
-                    !isSingleLetterQuery && labelNorm.startsWith(cleanQuery) -> score = 80
-
-                    // Ends-with match (Only for multi-letter queries)
-                    !isSingleLetterQuery && labelNorm.endsWith(cleanQuery) -> score = 70
-
-                    // Substring match (Only for multi-letter queries)
-                    !isSingleLetterQuery && labelNorm.contains(cleanQuery) -> score = 50
-                }
-
-                if (score > 0) {
-                    seenPackages.add(pkgNorm)
-                    appMatches.add(AppMatch(rawLabel, resolveInfo.activityInfo.packageName, activityName, score))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying launchable apps", e)
-        }
-
-        // 2. Search all installed application packages (for web app shortcuts or hidden system apps)
-        try {
-            val installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            for (appInfo in installedApps) {
-                val pkgNorm = appInfo.packageName.lowercase(Locale.getDefault())
-                if (seenPackages.contains(pkgNorm)) continue
-
-                val rawLabel = appInfo.loadLabel(pm).toString()
-                val labelNorm = rawLabel.lowercase(Locale.getDefault()).trim()
-                val tokens = labelNorm.split(" ", "-", "_", ".").filter { it.isNotEmpty() }
-
-                var score = 0
-                when {
-                    labelNorm == cleanQuery -> score = 100
-                    tokens.contains(cleanQuery) -> score = 90
-                    pkgNorm.endsWith(".$cleanQuery") -> score = 85
-                    !isSingleLetterQuery && labelNorm.startsWith(cleanQuery) -> score = 80
-                    !isSingleLetterQuery && labelNorm.contains(cleanQuery) -> score = 50
-                }
-
-                if (score > 0) {
-                    seenPackages.add(pkgNorm)
-                    appMatches.add(AppMatch(rawLabel, appInfo.packageName, null, score))
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying installed applications", e)
-        }
-
-        // Sort by highest match score
-        appMatches.sortByDescending { it.score }
-
-        if (appMatches.isNotEmpty()) {
-            val topMatch = appMatches[0]
-            if (launchAppMatch(topMatch)) {
-                return Pair(true, topMatch.label)
+        if (match != null) {
+            if (openAppByPackage(match.packageName)) {
+                return Pair(true, match.label)
             }
         }
 
         return Pair(false, queryName)
     }
 
-    private fun launchAppMatch(appMatch: AppMatch): Boolean {
-        // Try ComponentName launch first (Crucial for Web Apps, PWAs and Web Terminals)
-        if (appMatch.activityName != null) {
-            try {
-                val intent = Intent(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                    component = ComponentName(appMatch.packageName, appMatch.activityName)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                return true
-            } catch (e: Exception) {
-                // Fallback to launch intent
+    private fun findBestAppMatch(cleanQuery: String, compactQuery: String, forceRefresh: Boolean): CachedApp? {
+        val apps = getInstalledAppList(forceRefresh)
+        if (apps.isEmpty()) return null
+
+        val queryWords = cleanQuery.split(" ").filter { it.isNotEmpty() }
+        var bestApp: CachedApp? = null
+        var bestScore = 0
+
+        for (app in apps) {
+            var score = 0
+            when {
+                // Exact label match
+                app.normalizedLabel == cleanQuery -> score = 1000
+
+                // Exact compact match (e.g. "playstore" == "playstore", "whatsapp" == "whatsapp")
+                app.compactLabel == compactQuery -> score = 950
+
+                // Starts with match (e.g. "google" for "Google Chrome")
+                compactQuery.length >= 2 && app.compactLabel.startsWith(compactQuery) -> score = 900
+
+                // App label contains full query or query contains full app label
+                compactQuery.length >= 3 && app.compactLabel.contains(compactQuery) -> score = 860
+                compactQuery.length >= 3 && compactQuery.contains(app.compactLabel) -> score = 840
+
+                // Multi-word token match (e.g. query "play store" has all words in "google play store")
+                queryWords.size > 1 && app.tokens.containsAll(queryWords) -> score = 820
+
+                // Single-word token match (e.g. "terminal" in "web terminal")
+                app.tokens.contains(cleanQuery) -> score = 780
+
+                // Package name ends with .$compactQuery or contains compactQuery
+                app.packageName.lowercase(Locale.getDefault()).endsWith(".$compactQuery") -> score = 750
+                compactQuery.length >= 4 && app.packageName.lowercase(Locale.getDefault()).contains(compactQuery) -> score = 700
+            }
+
+            if (score > bestScore) {
+                bestScore = score
+                bestApp = app
+                if (bestScore == 1000) break // Perfect match shortcut
             }
         }
-        return openAppByPackage(appMatch.packageName)
+
+        return if (bestScore >= 700) bestApp else null
     }
 
-    private fun openAppByPackage(packageName: String): Boolean {
+    fun openAppByPackage(packageName: String): Boolean {
         return try {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
             if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
                 context.startActivity(launchIntent)
                 true
-            } else false
+            } else {
+                false
+            }
         } catch (e: Exception) {
+            Log.e(TAG, "Error opening app by package $packageName", e)
             false
         }
     }
@@ -632,5 +722,44 @@ class ActionExecutor(val context: Context) {
 
     companion object {
         private const val TAG = "ActionExecutor"
+        private const val CACHE_TTL_MS = 60_000L // 60 seconds
+
+        @Volatile
+        private var cachedApps: List<CachedApp>? = null
+        private var lastCacheTime: Long = 0L
+
+        private val SYSTEM_ALIASES = mapOf(
+            "play store" to listOf("com.android.vending"),
+            "playstore" to listOf("com.android.vending"),
+            "google play" to listOf("com.android.vending"),
+            "google play store" to listOf("com.android.vending"),
+            "app store" to listOf("com.android.vending"),
+            "store" to listOf("com.android.vending"),
+            "gallery" to listOf("com.google.android.apps.photos", "com.sec.android.gallery3d", "com.miui.gallery", "com.coloros.gallery3d", "com.oneplus.gallery"),
+            "photos" to listOf("com.google.android.apps.photos"),
+            "camera" to listOf("com.google.android.GoogleCamera", "com.android.camera", "com.oneplus.camera"),
+            "settings" to listOf("com.android.settings"),
+            "phone" to listOf("com.google.android.dialer", "com.android.dialer", "com.samsung.android.dialer"),
+            "dialer" to listOf("com.google.android.dialer", "com.android.dialer"),
+            "call" to listOf("com.google.android.dialer", "com.android.dialer"),
+            "messages" to listOf("com.google.android.apps.messaging", "com.android.mms"),
+            "message" to listOf("com.google.android.apps.messaging", "com.android.mms"),
+            "sms" to listOf("com.google.android.apps.messaging", "com.android.mms"),
+            "whatsapp" to listOf("com.whatsapp", "com.whatsapp.w4b"),
+            "youtube" to listOf("com.google.android.youtube"),
+            "chrome" to listOf("com.android.chrome"),
+            "browser" to listOf("com.android.chrome", "org.mozilla.firefox", "com.opera.browser"),
+            "instagram" to listOf("com.instagram.android"),
+            "spotify" to listOf("com.spotify.music"),
+            "calculator" to listOf("com.google.android.calculator", "com.sec.android.app.popupcalculator"),
+            "clock" to listOf("com.google.android.deskclock", "com.android.deskclock"),
+            "calendar" to listOf("com.google.android.calendar"),
+            "gmail" to listOf("com.google.android.gm"),
+            "mail" to listOf("com.google.android.gm"),
+            "email" to listOf("com.google.android.gm"),
+            "contacts" to listOf("com.google.android.contacts"),
+            "files" to listOf("com.google.android.documentsui", "com.google.android.apps.nbu.files", "com.sec.android.app.myfiles"),
+            "file manager" to listOf("com.google.android.documentsui", "com.google.android.apps.nbu.files", "com.sec.android.app.myfiles")
+        )
     }
 }

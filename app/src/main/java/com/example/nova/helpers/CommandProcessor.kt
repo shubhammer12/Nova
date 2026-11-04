@@ -209,13 +209,11 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                 }
             }
 
-            // --- UNIVERSAL APP OPENING (Installed & Hidden Apps) ---
-            command.startsWith("open ") || command.startsWith("launch ") || command.startsWith("start ") -> {
-                val appQuery = command.replace("open ", "")
-                    .replace("launch ", "")
-                    .replace("start ", "")
-                    .trim()
-
+            // --- UNIVERSAL APP OPENING (All Installed, Store & System Apps) ---
+            command.startsWith("open ") || command.startsWith("launch ") || command.startsWith("start ") ||
+            command.endsWith(" kholo") || command.endsWith(" khol do") || command.endsWith(" khol de") || command.endsWith(" khol") ||
+            command.contains("open karo") || command.contains("open kar") || command.contains("chalu karo") || command.contains("chalu kar") -> {
+                val appQuery = actionExecutor.cleanVoiceCommandToAppName(command)
                 val (success, matchedLabel) = actionExecutor.openAppByName(appQuery)
                 if (success) {
                     "Opening $matchedLabel"
@@ -224,9 +222,10 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                 }
             }
 
-            // Direct Single App Name (e.g. user just said "WhatsApp" or "Gallery" or "Calculator")
+            // Direct Single App Name (e.g. user said "WhatsApp", "Play Store", "Zomato", "Calculator")
             else -> {
-                val (success, matchedLabel) = actionExecutor.openAppByName(command)
+                val appQuery = actionExecutor.cleanVoiceCommandToAppName(command)
+                val (success, matchedLabel) = actionExecutor.openAppByName(appQuery)
                 if (success) {
                     "Opening $matchedLabel"
                 } else {
