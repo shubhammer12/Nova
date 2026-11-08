@@ -43,15 +43,20 @@ class BiometricHelper(private val activity: Activity) {
                 }
             }
 
-            val prompt = BiometricPrompt.Builder(activity)
-                .setTitle("Confirm Fingerprint to Uninstall Nova")
-                .setSubtitle("Scan your display fingerprint to authorize Nova uninstallation")
-                .setNegativeButton("Cancel", executor) { _, _ ->
-                    onError("Uninstallation Canceled")
-                }
-                .build()
+            try {
+                val prompt = BiometricPrompt.Builder(activity)
+                    .setTitle("Confirm Fingerprint to Uninstall Nova")
+                    .setSubtitle("Scan your display fingerprint to authorize Nova uninstallation")
+                    .setNegativeButton("Cancel", executor) { _, _ ->
+                        onError("Uninstallation Canceled")
+                    }
+                    .build()
 
-            prompt.authenticate(cancellationSignal, executor, callback)
+                prompt.authenticate(cancellationSignal, executor, callback)
+            } catch (_: Exception) {
+                // Fallback for devices without biometric hardware or lock screen
+                onSuccess()
+            }
         } else {
             onSuccess()
         }

@@ -16,6 +16,16 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
             return compoundResponse
         }
 
+        // 2. High-Priority Dedicated Calling Action (English, Hindi, Hinglish, Gujarati, Spoken Numbers)
+        val callTarget = actionExecutor.extractCallTarget(command)
+        if (callTarget != null) {
+            return if (callTarget.isNotEmpty()) {
+                actionExecutor.makeCall(callTarget)
+            } else {
+                "Who would you like me to call?"
+            }
+        }
+
         return when {
             // Greetings & Assistant Details
             command.contains("hello") || command.contains("hi nova") || command.contains("hey nova") -> {
@@ -28,6 +38,15 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
 
             command.contains("how are you") -> {
                 "I am doing great, Shubham! Ready to help you with anything."
+            }
+
+            // --- SHARE NOVA APP ---
+            command.contains("share nova") || command.contains("send nova") || command.contains("share app") ||
+            command.contains("send app") || command.contains("share nova app") || command.contains("nova share") ||
+            command.contains("nova send") || command.contains("share nova with") || command.contains("share this app") ||
+            command.contains("nova share karo") || command.contains("nova share kar") || command.contains("app share") ||
+            command.contains("nova share karu") || command.contains("app share kar") -> {
+                actionExecutor.shareNovaApk()
             }
 
             // --- TIMER MANAGEMENT ---
@@ -193,20 +212,6 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
             command.startsWith("search for ") -> {
                 val query = command.replace("search for ", "").trim()
                 actionExecutor.searchGoogleDeep(query)
-            }
-
-            // --- PHONE CALLING (Smart Contact Calling & Disambiguation) ---
-            command.startsWith("call ") || command.startsWith("dial ") || command.contains("ne call kar") || command.contains("ko call kar") || command.contains("ne call") || command.contains("ko call") || command.contains("make a call") || command.contains("phone call") -> {
-                val target = command.replace("call ", "")
-                    .replace("dial ", "")
-                    .replace("make a call to ", "")
-                    .replace("phone call to ", "")
-                    .trim()
-                if (target.isNotEmpty()) {
-                    actionExecutor.makeCall(target)
-                } else {
-                    "Who would you like me to call?"
-                }
             }
 
             // --- UNIVERSAL APP OPENING (All Installed, Store & System Apps) ---

@@ -115,11 +115,13 @@ import com.example.nova.helpers.ActionExecutor
 import com.example.nova.helpers.CommandProcessor
 import com.example.nova.helpers.SpeechHelper
 import com.example.nova.helpers.TTSHelper
+import com.example.nova.helpers.CallAnnouncerManager
 import com.example.nova.presentation.ui.BottomNavigationBar
 import com.example.nova.presentation.ui.HistoryItem
 import com.example.nova.presentation.ui.HistoryScreen
 import com.example.nova.presentation.ui.NovaScreen
 import com.example.nova.presentation.ui.SettingsScreen
+import com.example.nova.presentation.ui.ProfileScreen
 import org.json.JSONArray
 import org.json.JSONObject
 import com.example.nova.ui.theme.NovaTheme
@@ -148,7 +150,6 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
     private val statusMessage = mutableStateOf("Tap the microphone button to start")
     private val hasPermissionsState = mutableStateOf(false)
     private val currentRmsDb = mutableStateOf(0f)
-    private val currentScreenState = mutableStateOf("splash") // "splash" -> "home"
     private val historyListState = mutableStateOf<List<HistoryItem>>(emptyList())
 
     private val permissionLauncher = registerForActivityResult(
@@ -195,13 +196,13 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
         commandProcessor = CommandProcessor(actionExecutor)
         speechHelper = SpeechHelper(this, this)
         ttsHelper = TTSHelper(this)
+        CallAnnouncerManager.initTts(this)
 
         hasPermissionsState.value = PermissionUtils.hasAllPermissions(this)
         historyListState.value = loadHistoryFromPrefs(this)
 
         setContent {
             var activeNavScreen by remember { mutableStateOf(NovaScreen.ASSISTANT) }
-            var isManualProfileOpen by remember { mutableStateOf(false) }
 
             val prefs = remember { getSharedPreferences("nova_prefs", Context.MODE_PRIVATE) }
 
@@ -212,6 +213,99 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
             var profileNameState by remember { mutableStateOf(initialProfileName) }
             var homeNameState by remember { mutableStateOf(initialHomeName) }
             var homeEmojiState by remember { mutableStateOf(initialHomeEmoji) }
+
+            val initialProfileUri = remember { prefs.getString("profile_image_uri", null) }
+            var profileImageUriState by remember { mutableStateOf(initialProfileUri) }
+            var profileBitmapState by remember {
+                mutableStateOf(initialProfileUri?.let { loadBitmapFromUri(this@MainActivity, it) })
+            }
+
+            val profileGalleryLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: Uri? ->
+                if (uri != null) {
+                    try {
+                        contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                    val uriStr = uri.toString()
+                    prefs.edit().putString("profile_image_uri", uriStr).apply()
+                    profileImageUriState = uriStr
+                    profileBitmapState = loadBitmapFromUri(this@MainActivity, uriStr)
+                    Toast.makeText(this@MainActivity, "Profile photo updated!", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            val initialCallAnnouncerEnabled = remember { prefs.getBoolean("call_announcer_enabled", true) }
+            val initialCallAnnouncerLang = remember { prefs.getString("call_announcer_language", "gu") ?: "gu" }
+            val initialCallAnnouncerRepeats = remember { prefs.getInt("call_announcer_repeats", 2) }
+
+            var callAnnouncerEnabledState by remember { mutableStateOf(initialCallAnnouncerEnabled) }
+            var callAnnouncerLangState by remember { mutableStateOf(initialCallAnnouncerLang) }
+            var callAnnouncerRepeatsState by remember { mutableStateOf(initialCallAnnouncerRepeats) }
+
+            val initialVoiceStyle = remember { prefs.getString("voice_style", "clear_female") ?: "clear_female" }
+            val initialVoiceSpeed = remember { prefs.getFloat("voice_speed", 0.92f) }
+            val initialVoicePitch = remember { prefs.getFloat("voice_pitch", 1.04f) }
+
+            var voiceStyleState by remember { mutableStateOf(initialVoiceStyle) }
+            var voiceSpeedState by remember { mutableStateOf(initialVoiceSpeed) }
+            var voicePitchState by remember { mutableStateOf(initialVoicePitch) }
+
+            fun saveAssistantVoiceStyle(style: String) {
+                prefs.edit().putString("voice_style", style).apply()
+                voiceStyleState = style
+                ttsHelper.applyVoiceSettings(voiceSpeedState, voicePitchState, style)
+                Toast.makeText(this@MainActivity, "Voice tone updated!", Toast.LENGTH_SHORT).show()
+            }
+
+            fun saveAssistantVoiceSpeed(speed: Float) {
+                prefs.edit().putFloat("voice_speed", speed).apply()
+                voiceSpeedState = speed
+                ttsHelper.applyVoiceSettings(speed, voicePitchState, voiceStyleState)
+            }
+
+            fun saveAssistantVoicePitch(pitch: Float) {
+                prefs.edit().putFloat("voice_pitch", pitch).apply()
+                voicePitchState = pitch
+                ttsHelper.applyVoiceSettings(voiceSpeedState, pitch, voiceStyleState)
+            }
+
+            fun testAssistantVoice() {
+                assistantState.value = AssistantState.SPEAKING
+                statusMessage.value = "Nova speaking..."
+                ttsHelper.speakTestVoice(
+                    onDone = {
+                        assistantState.value = AssistantState.IDLE
+                        statusMessage.value = "Tap the microphone button to start"
+                    }
+                )
+            }
+
+            fun toggleCallAnnouncer(enabled: Boolean) {
+                if (enabled) {
+                    val missing = PermissionUtils.getMissingCallPermissions(this@MainActivity).toTypedArray()
+                    if (missing.isNotEmpty()) {
+                        permissionLauncher.launch(missing)
+                    }
+                }
+                prefs.edit().putBoolean("call_announcer_enabled", enabled).apply()
+                callAnnouncerEnabledState = enabled
+            }
+
+            fun saveCallAnnouncerLanguage(lang: String) {
+                prefs.edit().putString("call_announcer_language", lang).apply()
+                callAnnouncerLangState = lang
+            }
+
+            fun saveCallAnnouncerRepeats(repeats: Int) {
+                prefs.edit().putInt("call_announcer_repeats", repeats).apply()
+                callAnnouncerRepeatsState = repeats
+            }
 
             fun saveProfileName(newName: String) {
                 val clean = newName.trim().ifEmpty { "Shubham" }
@@ -235,100 +329,146 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
             }
 
             NovaTheme {
-                if (currentScreenState.value == "splash") {
-                    SplashScreen(
-                        userName = profileNameState,
-                        onUpdateName = { saveProfileName(it) },
-                        isManualOpen = isManualProfileOpen,
-                        onSplashFinished = {
-                            isManualProfileOpen = false
-                            currentScreenState.value = "home"
-                        }
-                    )
-                } else {
-                    Scaffold(
-                        bottomBar = {
-                            BottomNavigationBar(
-                                currentScreen = activeNavScreen,
-                                onScreenSelected = { activeNavScreen = it }
-                            )
-                        }
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier.padding(innerPadding)
-                        ) {
-                            when (activeNavScreen) {
-                                NovaScreen.ASSISTANT -> {
-                                    VoiceAssistantScreen(
-                                        assistantState = assistantState.value,
-                                        userSpokenText = userSpokenText.value,
-                                        assistantResponseText = assistantResponseText.value,
-                                        statusMessage = statusMessage.value,
-                                        hasPermissions = hasPermissionsState.value,
-                                        rmsDb = currentRmsDb.value,
-                                        userName = homeNameState,
-                                        userEmoji = homeEmojiState,
-                                        onUpdateName = { saveHomeName(it) },
-                                        onUpdateEmoji = { saveHomeEmoji(it) },
-                                        onRequestPermissions = { requestPermissions() },
-                                        onMicButtonClick = { toggleListening() },
-                                        onOpenProfile = {
-                                            isManualProfileOpen = true
-                                            currentScreenState.value = "splash"
-                                        }
-                                    )
-                                }
-                                NovaScreen.HISTORY -> {
-                                    HistoryScreen(
-                                        historyList = historyListState.value,
-                                        onClearHistory = {
-                                            historyListState.value = emptyList()
-                                            saveHistoryToPrefs(this@MainActivity, emptyList())
-                                            userSpokenText.value = ""
-                                            assistantResponseText.value = ""
-                                            Toast.makeText(this@MainActivity, "History cleared!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                }
-                                NovaScreen.SETTINGS -> {
-                                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                                    val adminComp = ComponentName(this@MainActivity, NovaDeviceAdminReceiver::class.java)
-                                    val isProtectionActive = dpm.isAdminActive(adminComp)
+                Scaffold(
+                    bottomBar = {
+                        BottomNavigationBar(
+                            currentScreen = activeNavScreen,
+                            onScreenSelected = { activeNavScreen = it },
+                            profileBitmap = profileBitmapState
+                        )
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier.padding(innerPadding)
+                    ) {
+                        when (activeNavScreen) {
+                            NovaScreen.ASSISTANT -> {
+                                VoiceAssistantScreen(
+                                    assistantState = assistantState.value,
+                                    userSpokenText = userSpokenText.value,
+                                    assistantResponseText = assistantResponseText.value,
+                                    statusMessage = statusMessage.value,
+                                    hasPermissions = hasPermissionsState.value,
+                                    rmsDb = currentRmsDb.value,
+                                    userName = homeNameState,
+                                    userEmoji = homeEmojiState,
+                                    onUpdateName = { saveHomeName(it) },
+                                    onUpdateEmoji = { saveHomeEmoji(it) },
+                                    onRequestPermissions = { requestPermissions() },
+                                    onMicButtonClick = { toggleListening() },
+                                    onOpenProfile = {
+                                        activeNavScreen = NovaScreen.PROFILE
+                                    }
+                                )
+                            }
+                            NovaScreen.HISTORY -> {
+                                HistoryScreen(
+                                    historyList = historyListState.value,
+                                    onClearHistory = {
+                                        historyListState.value = emptyList()
+                                        saveHistoryToPrefs(this@MainActivity, emptyList())
+                                        userSpokenText.value = ""
+                                        assistantResponseText.value = ""
+                                        Toast.makeText(this@MainActivity, "History cleared!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onSpeakMessage = { text ->
+                                        speakResponse(text)
+                                    }
+                                )
+                            }
+                            NovaScreen.SETTINGS -> {
+                                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                                val adminComp = ComponentName(this@MainActivity, NovaDeviceAdminReceiver::class.java)
+                                val isProtectionActive = dpm.isAdminActive(adminComp)
 
-                                    SettingsScreen(
-                                        onClearHistory = {
-                                            historyListState.value = emptyList()
-                                            saveHistoryToPrefs(this@MainActivity, emptyList())
-                                            userSpokenText.value = ""
-                                            assistantResponseText.value = ""
-                                            Toast.makeText(this@MainActivity, "Conversation memory cleared!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        isUninstallProtectionEnabled = isProtectionActive,
-                                        onToggleUninstallProtection = { enabled ->
-                                            val bioHelper = BiometricHelper(this@MainActivity)
-                                            bioHelper.authenticateForUninstall(
-                                                onSuccess = {
-                                                    if (enabled) {
-                                                        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                                                            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
-                                                            putExtra(
-                                                                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                                                                "Protect Nova against unauthorized uninstallation. Display fingerprint scan required to uninstall."
-                                                            )
-                                                        }
-                                                        startActivity(intent)
-                                                    } else {
-                                                        dpm.removeActiveAdmin(adminComp)
-                                                        Toast.makeText(this@MainActivity, "Uninstall protection disabled.", Toast.LENGTH_SHORT).show()
+                                SettingsScreen(
+                                    onClearHistory = {
+                                        historyListState.value = emptyList()
+                                        saveHistoryToPrefs(this@MainActivity, emptyList())
+                                        userSpokenText.value = ""
+                                        assistantResponseText.value = ""
+                                        Toast.makeText(this@MainActivity, "Conversation memory cleared!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    isUninstallProtectionEnabled = isProtectionActive,
+                                    onToggleUninstallProtection = { enabled ->
+                                        val bioHelper = BiometricHelper(this@MainActivity)
+                                        bioHelper.authenticateForUninstall(
+                                            onSuccess = {
+                                                if (enabled) {
+                                                    val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                                                        putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
+                                                        putExtra(
+                                                            DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                                                            "Protect Nova against unauthorized uninstallation. Display fingerprint scan required to uninstall."
+                                                        )
                                                     }
-                                                },
-                                                onError = { err ->
-                                                    Toast.makeText(this@MainActivity, "Fingerprint verification required: $err", Toast.LENGTH_SHORT).show()
+                                                    startActivity(intent)
+                                                } else {
+                                                    dpm.removeActiveAdmin(adminComp)
+                                                    Toast.makeText(this@MainActivity, "Uninstall protection disabled.", Toast.LENGTH_SHORT).show()
                                                 }
-                                            )
+                                            },
+                                            onError = { err ->
+                                                Toast.makeText(this@MainActivity, "Fingerprint verification required: $err", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    },
+                                    isCallAnnouncerEnabled = callAnnouncerEnabledState,
+                                    onToggleCallAnnouncer = { enabled ->
+                                        toggleCallAnnouncer(enabled)
+                                    },
+                                    callAnnouncerLanguage = callAnnouncerLangState,
+                                    onChangeCallAnnouncerLanguage = { lang ->
+                                        saveCallAnnouncerLanguage(lang)
+                                    },
+                                    callAnnouncerRepeats = callAnnouncerRepeatsState,
+                                    onChangeCallAnnouncerRepeats = { repeats ->
+                                        saveCallAnnouncerRepeats(repeats)
+                                    },
+                                    onTestCallAnnouncement = {
+                                        val sample = when (callAnnouncerLangState) {
+                                            "gu" -> "રાહુલ પટેલ"
+                                            "hi" -> "राहुल पटेल"
+                                            else -> "Rahul Patel"
                                         }
-                                    )
-                                }
+                                        CallAnnouncerManager.testAnnouncement(
+                                            this@MainActivity,
+                                            sampleName = sample,
+                                            langCode = callAnnouncerLangState
+                                        )
+                                    },
+                                    assistantVoiceStyle = voiceStyleState,
+                                    onChangeAssistantVoiceStyle = { style ->
+                                        saveAssistantVoiceStyle(style)
+                                    },
+                                    assistantVoiceSpeed = voiceSpeedState,
+                                    onChangeAssistantVoiceSpeed = { speed ->
+                                        saveAssistantVoiceSpeed(speed)
+                                    },
+                                    assistantVoicePitch = voicePitchState,
+                                    onChangeAssistantVoicePitch = { pitch ->
+                                        saveAssistantVoicePitch(pitch)
+                                    },
+                                    onTestAssistantVoice = {
+                                        testAssistantVoice()
+                                    },
+                                    onShareApp = {
+                                        actionExecutor.shareNovaApk()
+                                    }
+                                )
+                            }
+                            NovaScreen.PROFILE -> {
+                                ProfileScreen(
+                                    userName = profileNameState,
+                                    profileBitmap = profileBitmapState,
+                                    onUpdateName = { newName ->
+                                        saveProfileName(newName)
+                                        saveHomeName(newName)
+                                    },
+                                    onChangePhoto = {
+                                        profileGalleryLauncher.launch("image/*")
+                                    }
+                                )
                             }
                         }
                     }
@@ -800,389 +940,6 @@ fun HomeNeonBorderCanvas(
                 radius = with(density) { 2.dp.toPx() },
                 center = Offset(px, py)
             )
-        }
-    }
-}
-
-@Composable
-fun SplashScreen(
-    userName: String = "Shubham",
-    onUpdateName: (String) -> Unit = {},
-    isManualOpen: Boolean = false,
-    onSplashFinished: () -> Unit
-) {
-    val electricBlue = Color(0xFF00B0FF)
-    val cyanGlow = Color(0xFF00E5FF)
-    val turquoiseGlow = Color(0xFF00E676)
-    val purpleGlow = Color(0xFF7C4DFF)
-    val violetGlow = Color(0xFF9D4EDD)
-    val magentaGlow = Color(0xFFFF007F)
-
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("nova_prefs", Context.MODE_PRIVATE) }
-    var profileBitmap by remember {
-        val savedUri = prefs.getString("profile_image_uri", null)
-        mutableStateOf(savedUri?.let { loadBitmapFromUri(context, it) })
-    }
-
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (e: Exception) {
-                // Ignore
-            }
-            prefs.edit().putString("profile_image_uri", uri.toString()).apply()
-            profileBitmap = loadBitmapFromUri(context, uri.toString())
-        }
-    }
-
-    val isGlowActive = remember { mutableStateOf(true) }
-    var showHint by remember { mutableStateOf(true) }
-    var hintDissolvePhase by remember { mutableFloatStateOf(0f) }
-
-    // Waterfall Falling Drop Down Animation from top to center for "Hello Shubham"
-    val waterfallY = remember { Animatable(-250f) }
-    val waterfallAlpha = remember { Animatable(0f) }
-
-    // 1. Continuous Aurora Flow Animation
-    val infiniteTransition = rememberInfiniteTransition(label = "splash_aurora")
-
-    val auroraPhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(4500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "aurora_phase"
-    )
-
-    // Soft Edge Border Glow Pulse
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow_alpha"
-    )
-
-    // Continuous Up & Down Floating Oscillation for "Hello [Name]" Text
-    val floatingY by infiniteTransition.animateFloat(
-        initialValue = -7f,
-        targetValue = 7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "floating_y"
-    )
-
-    LaunchedEffect(isManualOpen) {
-        // Smooth waterfall drop down animation from top (-250dp -> 0dp)
-        waterfallAlpha.animateTo(1f, tween(350, easing = FastOutSlowInEasing))
-        waterfallY.animateTo(
-            targetValue = 0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow
-            )
-        )
-
-        // 2.6s delay before 400ms katka katka dissolution animation at T=3.0s
-        delay(2600)
-        val startTime = System.currentTimeMillis()
-        while (System.currentTimeMillis() - startTime < 400) {
-            val progress = (System.currentTimeMillis() - startTime) / 400f
-            hintDissolvePhase = progress.coerceIn(0f, 1f)
-            delay(16)
-        }
-        hintDissolvePhase = 1f
-        showHint = false
-
-        if (!isManualOpen) {
-            // Initial app launch -> auto transition to home after speech/animation
-            delay(500)
-            isGlowActive.value = false
-            onSplashFinished()
-        }
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures { _, dragAmount ->
-                    // User slides/swipes to go back to Home page
-                    if (dragAmount > 20f || dragAmount < -20f) {
-                        isGlowActive.value = false
-                        onSplashFinished()
-                    }
-                }
-            },
-        color = Color(0xFF05070D)
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // --- SUBTLE PROFILE EDGE GLOW ---
-            if (isGlowActive.value) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .border(
-                            width = 3.dp,
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    cyanGlow.copy(alpha = glowAlpha),
-                                    electricBlue.copy(alpha = glowAlpha),
-                                    violetGlow.copy(alpha = glowAlpha * 0.7f),
-                                    cyanGlow.copy(alpha = glowAlpha)
-                                )
-                            ),
-                            shape = RoundedCornerShape(28.dp)
-                        )
-                        .padding(2.dp),
-                    color = Color.Transparent
-                ) {}
-            }
-            // --- CONTINUOUS MOVING AURORA AMBIENT LIGHTS BACKGROUND ---
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val centerPoint = center
-                val w = size.width
-                val h = size.height
-
-                // Dark Navy Base Gradient
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF05070D),
-                            Color(0xFF080B18),
-                            Color(0xFF0C1024),
-                            Color(0xFF05070D)
-                        )
-                    )
-                )
-
-                // Aurora Light Blob 1 (Electric Blue / Cyan Moving Center)
-                val c1X = centerPoint.x + sin(auroraPhase) * (w * 0.28f)
-                val c1Y = centerPoint.y - cos(auroraPhase) * (h * 0.22f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            cyanGlow.copy(alpha = 0.35f),
-                            electricBlue.copy(alpha = 0.20f),
-                            Color.Transparent
-                        ),
-                        center = Offset(c1X, c1Y),
-                        radius = w * 0.65f
-                    ),
-                    center = Offset(c1X, c1Y),
-                    radius = w * 0.65f
-                )
-
-                // Aurora Light Blob 2 (Purple / Violet / Magenta Moving Center)
-                val c2X = centerPoint.x - cos(auroraPhase * 0.8f) * (w * 0.30f)
-                val c2Y = centerPoint.y + sin(auroraPhase * 0.8f) * (h * 0.25f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            violetGlow.copy(alpha = 0.32f),
-                            magentaGlow.copy(alpha = 0.18f),
-                            Color.Transparent
-                        ),
-                        center = Offset(c2X, c2Y),
-                        radius = w * 0.70f
-                    ),
-                    center = Offset(c2X, c2Y),
-                    radius = w * 0.70f
-                )
-
-                // Aurora Light Blob 3 (Turquoise / Cyan Center)
-                val c3X = centerPoint.x + sin(auroraPhase * 1.3f) * (w * 0.22f)
-                val c3Y = centerPoint.y + cos(auroraPhase * 1.3f) * (h * 0.20f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            turquoiseGlow.copy(alpha = 0.22f),
-                            Color.Transparent
-                        ),
-                        center = Offset(c3X, c3Y),
-                        radius = w * 0.50f
-                    ),
-                    center = Offset(c3X, c3Y),
-                    radius = w * 0.50f
-                )
-
-                // Floating Energy Light Particles
-                val numParticles = 12
-                for (p in 0 until numParticles) {
-                    val pRad = Math.toRadians((p * 360.0 / numParticles) + Math.toDegrees(auroraPhase.toDouble()))
-                    val px = (centerPoint.x + cos(pRad) * (w * 0.38f)).toFloat()
-                    val py = (centerPoint.y + sin(pRad) * (h * 0.18f)).toFloat()
-                    val particleColor = if (p % 2 == 0) cyanGlow else violetGlow
-
-                    drawCircle(
-                        color = particleColor.copy(alpha = 0.65f),
-                        radius = 4.5f,
-                        center = Offset(px, py)
-                    )
-                }
-            }
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(24.dp)
-            ) {
-                // Profile Section with Animated Gradient Border
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.padding(bottom = 22.dp)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(92.dp)
-                            .clip(CircleShape)
-                            .border(
-                                width = 2.5.dp,
-                                brush = Brush.sweepGradient(
-                                    colors = listOf(
-                                        cyanGlow,
-                                        electricBlue,
-                                        purpleGlow,
-                                        violetGlow,
-                                        cyanGlow
-                                    )
-                                ),
-                                shape = CircleShape
-                            )
-                            .clickable { galleryLauncher.launch("image/*") }
-                    ) {
-                        val currentBitmap = profileBitmap
-                        if (currentBitmap != null) {
-                            Image(
-                                bitmap = currentBitmap,
-                                contentDescription = "Profile Photo",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "Profile Photo",
-                                tint = Color.White,
-                                modifier = Modifier.size(50.dp)
-                            )
-                        }
-                    }
-
-                    // Small Camera Badge Icon at Bottom-Right
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .align(Alignment.BottomEnd)
-                            .clip(CircleShape)
-                            .background(purpleGlow)
-                            .border(1.5.dp, Color.White, CircleShape)
-                            .clickable { galleryLauncher.launch("image/*") }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt,
-                            contentDescription = "Change Photo",
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
-
-    var showEditDialog by remember { mutableStateOf(false) }
-
-    if (showEditDialog) {
-        EditNameDialog(
-            currentName = userName,
-            onSaveName = { newName ->
-                onUpdateName(newName)
-            },
-            onDismiss = { showEditDialog = false }
-        )
-    }
-
-                // Center Text: "Hello [Name]" with Waterfall Drop Down Animation & Continuous Up-Down Floating
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .offset(y = (waterfallY.value + floatingY).dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    showEditDialog = true
-                                }
-                            )
-                        }
-                ) {
-                    // Soft Ambient Glow Aura behind Text
-                    Canvas(modifier = Modifier.size(260.dp, 80.dp)) {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    cyanGlow.copy(alpha = 0.35f * waterfallAlpha.value),
-                                    Color.Transparent
-                                )
-                            ),
-                            radius = 100.dp.toPx()
-                        )
-                    }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Hello $userName",
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            letterSpacing = 1.2.sp,
-                            modifier = Modifier.alpha(waterfallAlpha.value)
-                        )
-                        if (showHint) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            val dissolveAlpha = ((1f - hintDissolvePhase) * waterfallAlpha.value * 0.7f).coerceIn(0f, 1f)
-                            val dissolveOffset = (sin(hintDissolvePhase * 25f) * 5f * hintDissolvePhase).dp
-                            Text(
-                                text = "✏️ (Double-tap to edit name)",
-                                fontSize = 11.sp,
-                                color = Color.Gray,
-                                modifier = Modifier
-                                    .offset(x = dissolveOffset)
-                                    .alpha(dissolveAlpha)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Subtitle: "Personal Voice Assistant"
-                Text(
-                    text = "Personal Voice Assistant",
-                    fontSize = 14.sp,
-                    color = cyanGlow,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.0.sp,
-                    modifier = Modifier.alpha(waterfallAlpha.value)
-                )
-            }
         }
     }
 }

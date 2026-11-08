@@ -30,6 +30,14 @@ class ActionExecutor(val context: Context) {
         val tokens: List<String>
     )
 
+    private data class CachedContact(
+        val name: String,
+        val number: String,
+        val normalizedName: String,
+        val compactName: String,
+        val tokens: List<String>
+    )
+
     /**
      * Cleans natural language / Hinglish / voice command noise to isolate the target app name.
      */
@@ -277,56 +285,295 @@ class ActionExecutor(val context: Context) {
     }
 
     /**
-     * Smart contact calling with fuzzy matching, full name priority & multi-match disambiguation.
+     * Converts spoken words for numbers (e.g. "nine eight seven...", "double nine") into standard digit string.
+     */
+    fun spokenWordsToDigits(input: String): String {
+        var text = input.lowercase(Locale.getDefault()).trim()
+
+        val doubleMap = mapOf(
+            "double zero" to "00", "double one" to "11", "double two" to "22",
+            "double three" to "33", "double four" to "44", "double five" to "55",
+            "double six" to "66", "double seven" to "77", "double eight" to "88",
+            "double nine" to "99",
+            "triple zero" to "000", "triple one" to "111", "triple two" to "222",
+            "triple three" to "333", "triple four" to "444", "triple five" to "555",
+            "triple six" to "666", "triple seven" to "777", "triple eight" to "888",
+            "triple nine" to "999"
+        )
+        for ((word, digits) in doubleMap) {
+            text = text.replace(word, digits)
+        }
+
+        val digitMap = mapOf(
+            "zero" to "0", "one" to "1", "two" to "2", "three" to "3",
+            "four" to "4", "five" to "5", "six" to "6", "seven" to "7",
+            "eight" to "8", "nine" to "9", "oh" to "0", "plus" to "+"
+        )
+        for ((word, digit) in digitMap) {
+            text = text.replace(Regex("\\b$word\\b"), digit)
+        }
+
+        return text
+    }
+
+    /**
+     * Accurately extracts the target name or phone number from any calling voice command
+     * (English, Hindi, Hinglish, Gujarati). Returns null if no calling intent detected.
+     */
+    fun extractCallTarget(rawInput: String): String? {
+        val inputWithDigits = spokenWordsToDigits(rawInput)
+        var text = inputWithDigits.lowercase(Locale.getDefault()).trim()
+        text = text.trim(',', '.', '!', '?', '"', '\'')
+
+        // Direct phone number spoken (e.g. 7-15 digits without letters)
+        val digitsOnly = text.filter { it.isDigit() || it == '+' }
+        val lettersOnly = text.filter { it.isLetter() }
+        if (digitsOnly.length >= 7 && lettersOnly.isEmpty()) {
+            return digitsOnly
+        }
+
+        // Check for calling intent
+        val callingKeywords = listOf("call", "dial", "phone", "lagao", "laga", "ring")
+        val hasCallingKeyword = callingKeywords.any { keyword ->
+            text.contains(Regex("\\b$keyword\\b")) || text.contains(keyword)
+        }
+
+        if (!hasCallingKeyword) {
+            return null
+        }
+
+        val prefixes = listOf(
+            "please make a phone call to ",
+            "please make a call to ",
+            "please make a call ",
+            "please call to ",
+            "please call ",
+            "please dial to ",
+            "please dial ",
+            "please phone to ",
+            "please phone ",
+            "can you please call to ",
+            "can you please call ",
+            "can you call to ",
+            "can you call ",
+            "can you dial to ",
+            "can you dial ",
+            "make a phone call to ",
+            "make a call to ",
+            "make a call ",
+            "phone call to ",
+            "phone call ",
+            "place a call to ",
+            "place a call ",
+            "call lagao to ",
+            "call lagao ",
+            "call laga do ",
+            "call laga de ",
+            "call laga ",
+            "call karo to ",
+            "call karo ",
+            "call kar do ",
+            "call kar de ",
+            "call kar ",
+            "call to ",
+            "call ",
+            "dial to ",
+            "dial ",
+            "phone lagao to ",
+            "phone lagao ",
+            "phone laga do ",
+            "phone laga de ",
+            "phone laga ",
+            "phone karo to ",
+            "phone karo ",
+            "phone kar do ",
+            "phone kar de ",
+            "phone kar ",
+            "phone to ",
+            "phone "
+        )
+
+        for (prefix in prefixes) {
+            if (text.startsWith(prefix)) {
+                text = text.removePrefix(prefix).trim()
+                break
+            }
+        }
+
+        val suffixes = listOf(
+            " par call lagao",
+            " par call karo",
+            " par call kar do",
+            " par call kar",
+            " par call",
+            " pe call lagao",
+            " pe call karo",
+            " pe call",
+            " ko phone call karo",
+            " ko phone call kar",
+            " ko phone call lagao",
+            " ko call lagao",
+            " ko call laga do",
+            " ko call laga de",
+            " ko call laga",
+            " ko call karo",
+            " ko call kar do",
+            " ko call kar de",
+            " ko call kar",
+            " ko call",
+            " ko phone lagao",
+            " ko phone laga do",
+            " ko phone laga de",
+            " ko phone laga",
+            " ko phone karo",
+            " ko phone kar do",
+            " ko phone kar de",
+            " ko phone kar",
+            " ko phone",
+            " ne phone lagao",
+            " ne phone karo",
+            " ne phone kar",
+            " ne phone",
+            " ne call lagao",
+            " ne call karo",
+            " ne call kar",
+            " ne call",
+            " call lagao",
+            " call karo",
+            " call kar do",
+            " call kar",
+            " call please",
+            " call",
+            " phone lagao",
+            " phone karo",
+            " phone kar do",
+            " phone kar",
+            " phone please",
+            " phone",
+            " lagao to",
+            " lagao",
+            " laga do",
+            " laga de",
+            " laga",
+            " karo to",
+            " karo",
+            " kar do",
+            " kar de",
+            " kar",
+            " please",
+            " to"
+        )
+
+        for (suffix in suffixes) {
+            if (text.endsWith(suffix)) {
+                text = text.removeSuffix(suffix).trim()
+                break
+            }
+        }
+
+        val postFillers = listOf(" ko", " ne", " par", " pe")
+        for (filler in postFillers) {
+            if (text.endsWith(filler)) {
+                text = text.removeSuffix(filler).trim()
+                break
+            }
+        }
+
+        if (text.startsWith("to ")) {
+            text = text.removePrefix("to ").trim()
+        }
+        if (text.startsWith("the ")) {
+            text = text.removePrefix("the ").trim()
+        }
+
+        return text
+    }
+
+    /**
+     * In-memory cached contact list with thread safety.
+     */
+    private fun getCachedContactsList(forceRefresh: Boolean = false): List<CachedContact> {
+        val now = System.currentTimeMillis()
+        val current = cachedContacts
+        if (!forceRefresh && current != null && (now - lastContactsCacheTime < CONTACTS_CACHE_TTL_MS)) {
+            return current
+        }
+
+        return synchronized(this) {
+            val fresh = cachedContacts
+            if (!forceRefresh && fresh != null && (System.currentTimeMillis() - lastContactsCacheTime < CONTACTS_CACHE_TTL_MS)) {
+                return@synchronized fresh
+            }
+
+            val contactsList = mutableListOf<CachedContact>()
+            val seenNumbers = HashSet<String>()
+
+            try {
+                val cursor = context.contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ),
+                    null,
+                    null,
+                    null
+                )
+
+                cursor?.use {
+                    val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+
+                    while (it.moveToNext()) {
+                        val name = it.getString(nameIndex)?.trim() ?: continue
+                        val num = it.getString(numIndex)?.trim() ?: continue
+                        val cleanNum = num.filter { ch -> ch.isDigit() || ch == '+' }
+                        if (cleanNum.isEmpty() || !seenNumbers.add(cleanNum)) continue
+
+                        val normName = name.lowercase(Locale.getDefault()).trim()
+                        val compactName = normName.replace(Regex("[^a-z0-9]"), "")
+                        val tokens = normName.split(" ", "-", "_", ".").filter { t -> t.isNotEmpty() }
+
+                        contactsList.add(CachedContact(name, num, normName, compactName, tokens))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error querying contacts", e)
+            }
+
+            cachedContacts = contactsList
+            lastContactsCacheTime = System.currentTimeMillis()
+            contactsList
+        }
+    }
+
+    /**
+     * Professional contact calling: only calls when confidence is strictly high.
+     * Prevents calling wrong strangers by eliminating loose substring matches.
      */
     fun makeCall(contactNameOrNumber: String): String {
         try {
-            // Clean Gujarati / Hinglish / English calling command prefixes & suffixes
-            val cleanTarget = contactNameOrNumber.lowercase(Locale.getDefault())
-                .replace("open whatsapp and search from", "")
-                .replace("open whatsapp and search", "")
-                .replace("open whatsapp", "")
-                .replace("phone lagao", "")
-                .replace("phone laga", "")
-                .replace("phone kar", "")
-                .replace("phone karo", "")
-                .replace("call karo", "")
-                .replace("call kar", "")
-                .replace("call lagao", "")
-                .replace("call laga", "")
-                .replace("ne phone kar", "")
-                .replace("ne phone karo", "")
-                .replace("ne phone laga", "")
-                .replace("ne call kar", "")
-                .replace("ne call karo", "")
-                .replace("ko call karo", "")
-                .replace("ko call kar", "")
-                .replace("ko call", "")
-                .replace("ne call", "")
-                .replace("ne phone", "")
-                .replace("ko phone", "")
-                .replace("bhai ne", "")
-                .replace("bhai ko", "")
-                .replace("bhai", "")
-                .replace("sir ne", "")
-                .replace("sir ko", "")
-                .replace("sir", "")
-                .replace("call to", "")
-                .replace("dial to", "")
-                .replace("call", "")
-                .replace("dial", "")
-                .replace("phone", "")
-                .trim()
+            val raw = contactNameOrNumber.trim()
+            if (raw.isEmpty()) return "Who would you like me to call?"
 
-            val digitsOnly = cleanTarget.filter { it.isDigit() || it == '+' }
+            val convertedDigits = spokenWordsToDigits(raw)
+            val digitsOnly = convertedDigits.filter { it.isDigit() || it == '+' }
+            val lettersOnly = convertedDigits.filter { it.isLetter() }
 
-            // If direct phone digits spoken
-            if (digitsOnly.length >= 5) {
-                return executeDirectCall(digitsOnly, cleanTarget)
+            // 1. Direct phone number calling (at least 7 digits, no words)
+            if (digitsOnly.length >= 7 && lettersOnly.length <= 2) {
+                return executeDirectCall(digitsOnly, digitsOnly)
             }
 
-            // Perform Fuzzy & Disambiguation Contact Search
-            val matches = findMatchingContacts(cleanTarget)
+            // 2. Clean spoken target name
+            var cleanTarget = raw.lowercase(Locale.getDefault()).trim()
+            cleanTarget = cleanTarget.removePrefix("to ").removePrefix("the ").trim()
+
+            // 3. Search contacts in cache, or refresh if not found
+            var matches = scoreAndFindContacts(cleanTarget, forceRefresh = false)
+            if (matches.isEmpty()) {
+                matches = scoreAndFindContacts(cleanTarget, forceRefresh = true)
+            }
 
             if (matches.isEmpty()) {
                 return "Could not find a contact named \"$cleanTarget\" in your phonebook."
@@ -334,115 +581,107 @@ class ActionExecutor(val context: Context) {
 
             val topScore = matches[0].score
 
-            // If single top match or top match score is strictly greater than 2nd match score -> Call directly!
-            if (matches.size == 1 || matches[1].score < topScore) {
-                val topMatch = matches[0]
-                return executeDirectCall(topMatch.number, topMatch.name)
+            // 4. Disambiguation: if multiple distinct people have identical top score
+            val topMatches = matches.filter { it.score == topScore }
+            if (topMatches.size > 1) {
+                val namesList = topMatches.take(3).joinToString(" or ") { it.name }
+                return "I found multiple contacts for \"$cleanTarget\": $namesList. Which one would you like to call?"
             }
 
-            // Multiple close matches with identical top score (e.g. "Raj V" vs "Raj Jadeja" when query is just "Raj")
-            val topMatches = matches.filter { it.score == topScore }
-            val namesList = topMatches.take(3).joinToString(" or ") { it.name }
-            return "I found multiple contacts for $cleanTarget: $namesList. Which one would you like to call?"
+            // 5. Unambiguous exact match -> Call directly!
+            val topMatch = matches[0]
+            return executeDirectCall(topMatch.number, topMatch.name)
+
         } catch (e: SecurityException) {
             return "Call permission not granted. Please allow Phone permissions in Settings."
         } catch (e: Exception) {
+            Log.e(TAG, "Error in makeCall", e)
             return "Unable to call $contactNameOrNumber."
         }
     }
 
     private fun executeDirectCall(number: String, displayName: String): String {
-        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
+        val cleanNumber = number.filter { it.isDigit() || it == '+' }
+        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(cleanNumber)}")).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
         return "Calling $displayName..."
     }
 
-    fun findMatchingContacts(query: String): List<ContactMatch> {
-        val cleanQuery = query.lowercase(Locale.getDefault())
-            .replace("ne call kar", "")
-            .replace("ko call kar", "")
-            .replace("ne call", "")
-            .replace("ko call", "")
-            .replace("call kar", "")
-            .replace("call karo", "")
-            .replace("phone kar", "")
-            .replace("phone karo", "")
-            .replace("bhai", "")
-            .replace("sir", "")
-            .replace("call", "")
-            .replace("dial", "")
-            .trim()
+    /**
+     * High-precision contact search with zero false positives.
+     * Evaluates full names, compact names, tokens, and word boundaries.
+     */
+    private fun scoreAndFindContacts(cleanQuery: String, forceRefresh: Boolean): List<ContactMatch> {
+        val contacts = getCachedContactsList(forceRefresh)
+        if (contacts.isEmpty()) return emptyList()
 
-        if (cleanQuery.isEmpty()) return emptyList()
+        val queryNorm = cleanQuery.lowercase(Locale.getDefault()).trim()
+        val compactQuery = queryNorm.replace(Regex("[^a-z0-9]"), "")
+        val queryTokens = queryNorm.split(" ", "-", "_", ".").filter { it.isNotEmpty() }
+        if (compactQuery.isEmpty()) return emptyList()
 
         val results = mutableListOf<ContactMatch>()
         val seenNumbers = mutableSetOf<String>()
 
-        val cursor = context.contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(
-                ContactsContract.CommonDataKinds.Phone.NUMBER,
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
-            ),
-            null,
-            null,
-            null
-        )
+        for (contact in contacts) {
+            val nameNorm = contact.normalizedName
+            val compactName = contact.compactName
+            val nameTokens = contact.tokens
 
-        cursor?.use {
-            val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-            val numIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            var score = 0
+            when {
+                // Exact full name match (e.g. "papa" == "papa", "raj patel" == "raj patel")
+                nameNorm == queryNorm -> score = 1000
 
-            while (it.moveToNext()) {
-                val name = it.getString(nameIndex) ?: continue
-                val num = it.getString(numIndex) ?: continue
-                val lowerName = name.lowercase(Locale.getDefault())
+                // Exact compact match (e.g. "rajpatel" == "raj patel")
+                compactName == compactQuery -> score = 950
 
-                var score = 0
-                val cleanQueryNorm = cleanQuery.lowercase(Locale.getDefault()).trim()
-                val lowerNameNorm = lowerName.trim()
+                // Exact word set equality (e.g. "patel raj" == "raj patel")
+                queryTokens.size > 1 && queryTokens.size == nameTokens.size && queryTokens.toSet() == nameTokens.toSet() -> score = 920
 
-                val queryTokens = cleanQueryNorm.split(" ").filter { t -> t.isNotEmpty() }
-                val nameTokens = lowerNameNorm.split(" ").filter { t -> t.isNotEmpty() }
+                // All query words exist as exact standalone words in contact name (e.g. query "raj patel" in "raj patel office")
+                queryTokens.size > 1 && queryTokens.all { qToken -> nameTokens.contains(qToken) } -> score = 900
 
-                when {
-                    // 1. Exact Full Name Match (e.g. "raj v" == "raj v") -> Highest Priority (100)
-                    lowerNameNorm == cleanQueryNorm -> score = 100
+                // Single-word query matches an exact standalone word in contact name (e.g. query "papa" in "papa jio" or "my papa")
+                queryTokens.size == 1 && nameTokens.contains(queryTokens[0]) -> score = 860
 
-                    // 2. Exact Token Count & Token Equality (e.g. ["raj", "v"] == ["raj", "v"]) -> Score 95
-                    queryTokens.size == nameTokens.size && queryTokens.zip(nameTokens).all { (q, n) -> q == n } -> score = 95
+                // Name starts with query on word boundary (e.g. query "raj", contact "raj sharma")
+                nameNorm.startsWith("$queryNorm ") -> score = 840
 
-                    // 3. All query tokens match exact tokens in full name (e.g. query "raj v" in "raj v mer") -> Score 90
-                    queryTokens.size > 1 && queryTokens.all { qToken -> nameTokens.contains(qToken) } -> score = 90
+                // Honorific variations: query has honorific ("papa ji", "rahul bhai") matching contact ("papa", "rahul")
+                queryTokens.size > 1 && nameTokens.isNotEmpty() &&
+                    (queryTokens.contains("ji") || queryTokens.contains("bhai") || queryTokens.contains("sir")) &&
+                    nameTokens.all { queryTokens.contains(it) } -> score = 850
 
-                    // 4. Exact First Name + Suffix/Surname Prefix match (e.g. "raj v" matches "raj vishwakarma") -> Score 85
-                    queryTokens.size > 1 && queryTokens.mapIndexed { idx, qToken ->
-                        if (idx < nameTokens.size) nameTokens[idx].startsWith(qToken) else false
-                    }.all { it } -> score = 85
+                // Contact name has honorific ("rahul bhai") matching query ("rahul")
+                queryTokens.isNotEmpty() && nameTokens.size > 1 &&
+                    (nameTokens.contains("ji") || nameTokens.contains("bhai") || nameTokens.contains("sir")) &&
+                    queryTokens.all { nameTokens.contains(it) } -> score = 850
 
-                    // 5. Query is exact prefix of full name -> Score 80
-                    lowerNameNorm.startsWith(cleanQueryNorm) -> score = 80
+                // All query tokens match prefix of contact words (minimum 3 characters)
+                queryTokens.isNotEmpty() && queryTokens.all { q -> q.length >= 3 && nameTokens.any { n -> n.startsWith(q) } } -> score = 780
+            }
 
-                    // 6. All query tokens match prefix of name tokens
-                    queryTokens.isNotEmpty() && queryTokens.all { qToken -> nameTokens.any { nToken -> nToken.startsWith(qToken) } } -> score = 70
-
-                    // 7. Single token exact match (e.g. "raj" == "raj")
-                    queryTokens.size == 1 && nameTokens.contains(queryTokens[0]) -> score = 60
-
-                    // 8. Substring match
-                    lowerNameNorm.contains(cleanQueryNorm) -> score = 50
-                }
-
-                if (score > 0 && seenNumbers.add(num)) {
-                    results.add(ContactMatch(name, num, score))
+            // High-confidence threshold only: eliminates accidental calls to random people
+            if (score >= 750) {
+                val cleanNum = contact.number.filter { it.isDigit() || it == '+' }
+                if (seenNumbers.add(cleanNum)) {
+                    results.add(ContactMatch(contact.name, contact.number, score))
                 }
             }
         }
 
-        // Sort by highest match score
         return results.sortedByDescending { it.score }
+    }
+
+    /**
+     * Public search interface used by WhatsApp, SMS, and messaging functions.
+     */
+    fun findMatchingContacts(query: String): List<ContactMatch> {
+        val matches = scoreAndFindContacts(query, forceRefresh = false)
+        return if (matches.isNotEmpty()) matches else scoreAndFindContacts(query, forceRefresh = true)
     }
 
     fun toggleFlashlight(enable: Boolean): String {
@@ -723,10 +962,15 @@ class ActionExecutor(val context: Context) {
     companion object {
         private const val TAG = "ActionExecutor"
         private const val CACHE_TTL_MS = 60_000L // 60 seconds
+        private const val CONTACTS_CACHE_TTL_MS = 60_000L // 60 seconds
 
         @Volatile
         private var cachedApps: List<CachedApp>? = null
         private var lastCacheTime: Long = 0L
+
+        @Volatile
+        private var cachedContacts: List<CachedContact>? = null
+        private var lastContactsCacheTime: Long = 0L
 
         private val SYSTEM_ALIASES = mapOf(
             "play store" to listOf("com.android.vending"),
@@ -761,5 +1005,55 @@ class ActionExecutor(val context: Context) {
             "files" to listOf("com.google.android.documentsui", "com.google.android.apps.nbu.files", "com.sec.android.app.myfiles"),
             "file manager" to listOf("com.google.android.documentsui", "com.google.android.apps.nbu.files", "com.sec.android.app.myfiles")
         )
+    }
+
+    /**
+     * Shares the Nova APK with other devices via Bluetooth, WhatsApp, or any sharing app.
+     * Uses PackageManager to locate the installed APK on the current device,
+     * then copies it to cache and shares via FileProvider for compatibility.
+     */
+    fun shareNovaApk(): String {
+        return try {
+            val pm = context.packageManager
+            val appInfo = pm.getApplicationInfo(context.packageName, 0)
+            val sourceApk = java.io.File(appInfo.sourceDir)
+
+            // Copy APK to shareable cache location
+            val cacheDir = java.io.File(context.cacheDir, "apk")
+            if (!cacheDir.exists()) cacheDir.mkdirs()
+            val destApk = java.io.File(cacheDir, "Nova.apk")
+
+            sourceApk.inputStream().use { input ->
+                destApk.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            // Build a content URI via FileProvider
+            val apkUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                destApk
+            )
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.android.package-archive"
+                putExtra(Intent.EXTRA_STREAM, apkUri)
+                putExtra(Intent.EXTRA_SUBJECT, "Nova AI Assistant")
+                putExtra(Intent.EXTRA_TEXT, "Install Nova AI Assistant - your personal intelligent voice assistant!")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            context.startActivity(
+                Intent.createChooser(shareIntent, "Share Nova via...").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+            "Sharing Nova APK. Choose Bluetooth, WhatsApp, or any sharing app."
+        } catch (e: Exception) {
+            Log.e("ActionExecutor", "Failed to share APK: ${e.message}")
+            "Unable to share Nova APK: ${e.localizedMessage}"
+        }
     }
 }
