@@ -3,6 +3,17 @@ package com.example.nova.helpers
 import com.example.nova.automation.TimerManager
 import java.util.Locale
 
+/**
+ * CommandProcessor — Nova AI Command Dispatcher
+ *
+ * Maps spoken commands (English, Gujarati, Hindi, Hinglish) to real device actions.
+ * Features:
+ * - ALL installed apps opened dynamically via ActionExecutor (games, social, productivity, etc.)
+ * - Deep in-app search for YouTube, Play Store, Maps, Spotify, Chrome, Instagram, Twitter, etc.
+ * - Full contact/phonebook lookup for calling with smart fuzzy matching
+ * - Gujarati/Hindi/Hinglish command support throughout
+ * - Full automation: Flashlight, screenshot, timer, alarm, SMS, WhatsApp messaging, etc.
+ */
 class CommandProcessor(private val actionExecutor: ActionExecutor) {
 
     private val timerManager = TimerManager(actionExecutor.context)
@@ -10,13 +21,11 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
     fun processCommand(input: String): String {
         val command = input.lowercase(Locale.getDefault()).trim()
 
-        // 1. Check for Compound App Opening + Deep Search commands first
+        // 1. Compound commands first: "open youtube and search xyz", "youtube ma search kar"
         val compoundResponse = handleCompoundOpenAndSearch(command)
-        if (compoundResponse != null) {
-            return compoundResponse
-        }
+        if (compoundResponse != null) return compoundResponse
 
-        // 2. High-Priority Dedicated Calling Action (English, Hindi, Hinglish, Gujarati, Spoken Numbers)
+        // 2. High-Priority Calling (English, Hindi, Hinglish, Gujarati, spoken numbers)
         val callTarget = actionExecutor.extractCallTarget(command)
         if (callTarget != null) {
             return if (callTarget.isNotEmpty()) {
@@ -27,30 +36,34 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
         }
 
         return when {
-            // Greetings & Assistant Details
-            command.contains("hello") || command.contains("hi nova") || command.contains("hey nova") -> {
-                "Hello Shubham! How can I assist you today?"
+            // ==================== GREETINGS ====================
+            command.contains("hello") || command.contains("hi nova") || command.contains("hey nova") ||
+            command.contains("kem cho") || command.contains("kaise ho") -> {
+                val name = actionExecutor.getUserName()
+                "Hello $name! How can I assist you today?"
             }
 
-            command.contains("who are you") || command.contains("your name") -> {
-                "I am Nova, your personal intelligent voice assistant created for Shubham."
+            command.contains("who are you") || command.contains("your name") ||
+            command.contains("tu kaun hai") || command.contains("tame kon cho") -> {
+                "I am Nova, your personal intelligent voice assistant."
             }
 
-            command.contains("how are you") -> {
-                "I am doing great, Shubham! Ready to help you with anything."
+            command.contains("how are you") || command.contains("tu kaisa hai") || command.contains("tame kem cho") -> {
+                val name = actionExecutor.getUserName()
+                "I am doing great, $name! Ready to help you with anything."
             }
 
-            // --- SHARE NOVA APP ---
+            // ==================== SHARE NOVA APP ====================
             command.contains("share nova") || command.contains("send nova") || command.contains("share app") ||
-            command.contains("send app") || command.contains("share nova app") || command.contains("nova share") ||
-            command.contains("nova send") || command.contains("share nova with") || command.contains("share this app") ||
-            command.contains("nova share karo") || command.contains("nova share kar") || command.contains("app share") ||
+            command.contains("send app") || command.contains("share nova app") || command.contains("app share") ||
+            command.contains("nova share karo") || command.contains("nova share kar") ||
             command.contains("nova share karu") || command.contains("app share kar") -> {
                 actionExecutor.shareNovaApk()
             }
 
-            // --- TIMER MANAGEMENT ---
-            command.contains("cancel timer") || command.contains("stop timer") || command.contains("timer band kar") -> {
+            // ==================== TIMER ====================
+            command.contains("cancel timer") || command.contains("stop timer") ||
+            command.contains("timer band kar") || command.contains("timer bhand kar") -> {
                 timerManager.cancelTimer()
             }
 
@@ -60,8 +73,65 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                 timerManager.startTimer(minutes, "Nova Timer")
             }
 
-            // --- WHATSAPP SPECIFIC CHAT & APP ACTIONS ---
-            command.contains("chat") || command.contains("whatsapp") || command.contains("ni chat") || command.contains("ki chat") -> {
+            // ==================== WHATSAPP MESSAGING (Auto-send) ====================
+            (command.contains("message") || command.contains("msg") || command.contains("મેસેજ") ||
+             command.contains("moklo") || command.contains("bhejo") || command.contains("મોકલો") ||
+             command.contains("send kar") || command.contains("likh") || command.contains("type")) &&
+            (command.contains("whatsapp") || command.contains("વોટ્સએપ") || command.contains("wa ")) -> {
+                val parsed = extractWhatsAppMessageDetails(command)
+                if (parsed != null) {
+                    actionExecutor.autoSendWhatsAppMessage(parsed.first, parsed.second)
+                } else {
+                    actionExecutor.openAppByName("whatsapp")
+                    "Opening WhatsApp for you."
+                }
+            }
+
+            // ==================== SCREENSHOT ====================
+            command.contains("take screenshot") || command.contains("screenshot paado") ||
+            command.contains("screenshot le") || command.contains("સ્ક્રીનશોટ") ||
+            command.contains("screenshot lo") || command.contains("capture screen") -> {
+                actionExecutor.executeGlobalScreenshot()
+            }
+
+            // ==================== LOCK SCREEN ====================
+            command.contains("lock screen") || command.contains("screen lock") ||
+            command.contains("phone lock") || command.contains("lock kar") ||
+            command.contains("lock karo") || command.contains("lock kari de") ||
+            command.contains("lock phone") || command.contains("band kar") -> {
+                actionExecutor.executeGlobalLockScreen()
+            }
+
+            // ==================== HOME / BACK / RECENTS / NOTIFICATIONS ====================
+            command == "home" || command == "home screen" || command.contains("go home") ||
+            command.contains("go to home") || command.contains("home pe ja") ||
+            command.contains("home par ja") || command.contains("home jao") ||
+            command.contains("home screen pe ja") || command.contains("home pe le jao") -> {
+                actionExecutor.executeGlobalHome()
+            }
+
+            command == "back" || command.contains("go back") || command.contains("piche ja") ||
+            command.contains("pichhe ja") || command.contains("wapas ja") || command.contains("back ja") -> {
+                actionExecutor.executeGlobalBack()
+            }
+
+            command.contains("recent apps") || command.contains("recents") ||
+            command.contains("recent karo") || command.contains("recent dikhao") -> {
+                actionExecutor.executeGlobalRecents()
+            }
+
+            command.contains("notification") || command.contains("notifications dikhao") ||
+            command.contains("notification kholao") -> {
+                actionExecutor.executeGlobalNotifications()
+            }
+
+            command.contains("quick settings") || command.contains("settings kholao") -> {
+                actionExecutor.executeGlobalQuickSettings()
+            }
+
+            // ==================== WHATSAPP CHAT OPEN ====================
+            command.contains("whatsapp") || command.contains("chat") || command.contains("ni chat") ||
+            command.contains("ki chat") || command.contains("ni chat open") || command.contains("ki chat kholao") -> {
                 val clean = command
                     .replace("open whatsapp and search from ", "")
                     .replace("open whatsapp and search for ", "")
@@ -72,6 +142,7 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                     .replace("whatsapp chat of ", "")
                     .replace("whatsapp chat ", "")
                     .replace("whatsapp ma ", "")
+                    .replace("whatsapp mein ", "")
                     .replace("whatsapp ", "")
                     .replace("open chat of ", "")
                     .replace("open chat for ", "")
@@ -90,7 +161,7 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                     .replace("open", "")
                     .trim()
 
-                if (clean.isNotEmpty() && clean != "whatsapp") {
+                if (clean.isNotEmpty()) {
                     actionExecutor.openWhatsAppChat(clean)
                 } else {
                     actionExecutor.openAppByName("whatsapp")
@@ -98,143 +169,179 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                 }
             }
 
-            // --- DEVICE CONTROL (Flashlight, Camera, Battery, Time, Date) ---
-            command.contains("turn on flashlight") || command.contains("flashlight on") || command.contains("torch on") -> {
+            // ==================== FLASHLIGHT ====================
+            command.contains("turn on flashlight") || command.contains("flashlight on") ||
+            command.contains("torch on") || command.contains("torch chalu") ||
+            command.contains("torch chalu kar") || command.contains("flashlight chalu") ||
+            command.contains("light on") || command.contains("torch on kar") -> {
                 actionExecutor.toggleFlashlight(true)
             }
 
-            command.contains("turn off flashlight") || command.contains("flashlight off") || command.contains("torch off") -> {
+            command.contains("turn off flashlight") || command.contains("flashlight off") ||
+            command.contains("torch off") || command.contains("torch band") ||
+            command.contains("torch band kar") || command.contains("light off") -> {
                 actionExecutor.toggleFlashlight(false)
             }
 
-            command == "camera" || command.contains("open camera") || command.contains("take photo") || command.contains("take picture") -> {
+            // ==================== CAMERA ====================
+            command == "camera" || command.contains("open camera") || command.contains("take photo") ||
+            command.contains("take picture") || command.contains("photo lo") || command.contains("camera kholao") -> {
                 actionExecutor.openCamera()
                 "Opening camera for you."
             }
 
-            command.contains("time") || command.contains("clock") -> {
+            // ==================== TIME / DATE / BATTERY ====================
+            command.contains("time") || command.contains("clock") ||
+            command.contains("time bolo") || command.contains("what time") -> {
                 actionExecutor.getCurrentTime()
             }
 
-            command.contains("date") || command.contains("today") || command.contains("day") -> {
+            command.contains("date") || command.contains("today") || command.contains("aaj ki tarikh") ||
+            command.contains("aaj ka din") || command.contains("what date") -> {
                 actionExecutor.getCurrentDate()
             }
 
-            command.contains("battery") || command.contains("charge") || command.contains("power") -> {
+            command.contains("battery") || command.contains("charge") ||
+            command.contains("battery kitni hai") || command.contains("power") -> {
                 actionExecutor.getBatteryLevel()
             }
 
-            // --- ALARMS & REMINDERS ---
-            command.contains("alarm") || command.contains("reminder") || command.contains("remind me") -> {
+            // ==================== ALARMS & REMINDERS ====================
+            command.contains("alarm") || command.contains("reminder") || command.contains("remind me") ||
+            command.contains("alarm set") || command.contains("alarm lagao") -> {
                 val digits = command.filter { it.isDigit() }
-                val hour = digits.toIntOrNull() ?: 7
-                actionExecutor.setAlarm(hour % 24, 0, "Nova Reminder")
+                val hour = digits.take(2).toIntOrNull() ?: 7
+                val minute = if (digits.length >= 4) digits.substring(2, 4).toIntOrNull() ?: 0 else 0
+                actionExecutor.setAlarm(hour % 24, minute, "Nova Reminder")
             }
 
-            // --- MESSAGING / SMS ---
-            command.startsWith("send message to ") || command.startsWith("message ") || command.startsWith("text ") -> {
-                val clean = command.replace("send message to ", "").replace("message ", "").replace("text ", "").trim()
-                val parts = clean.split(" ", limit = 2)
-                val target = parts[0]
-                val text = if (parts.size > 1) parts[1] else "Hello from Nova"
+            // ==================== SMS MESSAGES ====================
+            command.startsWith("send message to ") || command.startsWith("send sms to ") ||
+            command.startsWith("text ") && command.contains(" saying ") -> {
+                val clean = command
+                    .replace("send message to ", "").replace("send sms to ", "").replace("text ", "").trim()
+                val parts = clean.split(" saying ", " that ", limit = 2)
+                val target = parts[0].trim()
+                val text = if (parts.size > 1) parts[1].trim() else "Hello from Nova"
                 actionExecutor.sendMessage(target, text)
             }
 
-            // --- DEEP SEARCH COMMANDS FOR SPECIFIC APPS ---
-            command.startsWith("search youtube for ") || (command.startsWith("play ") && command.contains("on youtube")) || command.startsWith("youtube search ") -> {
-                val query = command.replace("search youtube for ", "")
-                    .replace("play ", "")
-                    .replace("on youtube", "")
-                    .replace("youtube search ", "")
-                    .trim()
-                if (query.isNotEmpty()) {
-                    actionExecutor.searchYouTubeDeep(query)
-                } else {
-                    actionExecutor.openAppByName("youtube")
-                    "Opening YouTube"
-                }
+            // ==================== DEEP SEARCH: YOUTUBE ====================
+            command.contains("youtube") && (command.contains("search") || command.contains("play") ||
+            command.contains("find") || command.contains("dhundho") || command.contains("dekho")) -> {
+                val query = command
+                    .replace("search youtube for ", "").replace("youtube search ", "")
+                    .replace("youtube par search kar ", "").replace("youtube ma search kar ", "")
+                    .replace("youtube ma ", "").replace("youtube par ", "")
+                    .replace("youtube mein search ", "").replace("youtube mein ", "")
+                    .replace("play on youtube", "").replace("on youtube", "")
+                    .replace("youtube ", "").replace("search for ", "").replace("search ", "")
+                    .replace("play ", "").replace("find ", "").replace("dekho ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchYouTubeDeep(query)
+                else { actionExecutor.openAppByName("youtube"); "Opening YouTube" }
             }
 
-            command.startsWith("search play store for ") || (command.startsWith("find ") && command.contains("on play store")) || command.startsWith("play store ") -> {
-                val query = command.replace("search play store for ", "")
-                    .replace("find ", "")
-                    .replace("on play store", "")
-                    .replace("play store ", "")
-                    .trim()
-                if (query.isNotEmpty()) {
-                    actionExecutor.searchPlayStoreDeep(query)
-                } else {
-                    actionExecutor.openAppByName("play store")
-                    "Opening Play Store"
-                }
+            // ==================== DEEP SEARCH: PLAY STORE ====================
+            command.contains("play store") && (command.contains("search") || command.contains("find") ||
+            command.contains("dhundho") || command.contains("install")) -> {
+                val query = command
+                    .replace("search play store for ", "").replace("play store search ", "")
+                    .replace("find on play store", "").replace("install ", "")
+                    .replace("play store par search ", "").replace("play store ma search ", "")
+                    .replace("play store ", "").replace("search for ", "").replace("search ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchPlayStoreDeep(query)
+                else { actionExecutor.openAppByName("play store"); "Opening Play Store" }
             }
 
-            command.startsWith("search maps for ") || command.startsWith("navigate to ") || command.startsWith("maps ") -> {
-                val query = command.replace("search maps for ", "")
-                    .replace("navigate to ", "")
-                    .replace("maps ", "")
-                    .trim()
-                if (query.isNotEmpty()) {
-                    actionExecutor.searchMapsDeep(query)
-                } else {
-                    actionExecutor.openAppByName("maps")
-                    "Opening Maps"
-                }
+            // ==================== DEEP SEARCH: GOOGLE MAPS ====================
+            command.contains("maps") || command.startsWith("navigate to ") ||
+            command.startsWith("directions to ") || command.contains("location dhundho") -> {
+                val query = command
+                    .replace("search maps for ", "").replace("navigate to ", "")
+                    .replace("directions to ", "").replace("maps par search ", "")
+                    .replace("maps ", "").replace("location dhundho ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchMapsDeep(query)
+                else { actionExecutor.openAppByName("maps"); "Opening Maps" }
             }
 
-            command.startsWith("search spotify for ") || (command.startsWith("play ") && command.contains("on spotify")) || command.startsWith("spotify ") -> {
-                val query = command.replace("search spotify for ", "")
-                    .replace("play ", "")
-                    .replace("on spotify", "")
-                    .replace("spotify ", "")
-                    .trim()
-                if (query.isNotEmpty()) {
-                    actionExecutor.searchSpotifyDeep(query)
-                } else {
-                    actionExecutor.openAppByName("spotify")
-                    "Opening Spotify"
-                }
+            // ==================== DEEP SEARCH: SPOTIFY ====================
+            command.contains("spotify") && (command.contains("play") || command.contains("search") ||
+            command.contains("gao") || command.contains("bajao")) -> {
+                val query = command
+                    .replace("search spotify for ", "").replace("play on spotify", "")
+                    .replace("spotify par bajao ", "").replace("spotify par play karo ", "")
+                    .replace("spotify ", "").replace("play ", "").replace("search ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchSpotifyDeep(query)
+                else { actionExecutor.openAppByName("spotify"); "Opening Spotify" }
             }
 
-            command.startsWith("search google for ") || command.startsWith("google ") -> {
-                val query = command.replace("search google for ", "")
-                    .replace("google ", "")
-                    .trim()
-                if (query.isNotEmpty()) {
-                    actionExecutor.searchGoogleDeep(query)
-                } else {
-                    actionExecutor.openWebsite("https://www.google.com")
-                    "Opening Google Search"
-                }
+            // ==================== DEEP SEARCH: INSTAGRAM ====================
+            command.contains("instagram") && (command.contains("search") || command.contains("find") ||
+            command.contains("profile") || command.contains("dhundho") || command.contains("open profile")) -> {
+                val query = command
+                    .replace("search instagram for ", "").replace("instagram par search ", "")
+                    .replace("instagram search ", "").replace("find on instagram", "")
+                    .replace("instagram profile of ", "").replace("open profile of ", "")
+                    .replace("instagram ", "").replace("search ", "").replace("find ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchInstagramUser(query)
+                else { actionExecutor.openAppByName("instagram"); "Opening Instagram" }
             }
 
-            // Generic search for query
-            command.startsWith("search for ") -> {
-                val query = command.replace("search for ", "").trim()
+            // ==================== DEEP SEARCH: TWITTER / X ====================
+            command.contains("twitter") || command.contains(" x app") &&
+            (command.contains("search") || command.contains("find") || command.contains("tweet")) -> {
+                val query = command
+                    .replace("search twitter for ", "").replace("twitter search ", "")
+                    .replace("twitter par search ", "").replace("twitter ", "")
+                    .replace("x app ", "").replace("search ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchTwitter(query)
+                else { actionExecutor.openAppByName("twitter"); "Opening Twitter" }
+            }
+
+            // ==================== DEEP SEARCH: GOOGLE ====================
+            command.startsWith("search google for ") || command.startsWith("google search ") ||
+            command.startsWith("google ") || command.startsWith("search for ") ||
+            command.startsWith("google par search kar ") -> {
+                val query = command
+                    .replace("search google for ", "").replace("google search ", "")
+                    .replace("google par search kar ", "").replace("google ", "")
+                    .replace("search for ", "").replace("search ", "").trim()
+                if (query.isNotEmpty()) actionExecutor.searchGoogleDeep(query)
+                else { actionExecutor.openWebsite("https://www.google.com"); "Opening Google" }
+            }
+
+            // ==================== GENERIC SEARCH ====================
+            command.startsWith("search ") -> {
+                val query = command.removePrefix("search ").trim()
                 actionExecutor.searchGoogleDeep(query)
             }
 
-            // --- UNIVERSAL APP OPENING (All Installed, Store & System Apps) ---
+            // ==================== OPEN ANY APP (All installed: games, social, productivity, etc.) ====================
             command.startsWith("open ") || command.startsWith("launch ") || command.startsWith("start ") ||
-            command.endsWith(" kholo") || command.endsWith(" khol do") || command.endsWith(" khol de") || command.endsWith(" khol") ||
-            command.contains("open karo") || command.contains("open kar") || command.contains("chalu karo") || command.contains("chalu kar") -> {
+            command.startsWith("chalu kar ") || command.startsWith("kholao ") ||
+            command.endsWith(" kholo") || command.endsWith(" khol do") || command.endsWith(" khol de") ||
+            command.endsWith(" khol") || command.endsWith(" open kar") || command.endsWith(" open karo") ||
+            command.contains("open karo ") || command.contains("open kar ") ||
+            command.contains("chalu karo ") || command.contains("chalu kar ") ||
+            command.endsWith(" chalu kar") || command.endsWith(" chalu karo") -> {
                 val appQuery = actionExecutor.cleanVoiceCommandToAppName(command)
                 val (success, matchedLabel) = actionExecutor.openAppByName(appQuery)
                 if (success) {
                     "Opening $matchedLabel"
                 } else {
-                    "Could not find an app named \"$appQuery\" on your device."
+                    // If not an installed app, try Google Search as fallback
+                    actionExecutor.searchGoogleDeep(appQuery)
                 }
             }
 
-            // Direct Single App Name (e.g. user said "WhatsApp", "Play Store", "Zomato", "Calculator")
+            // ==================== DIRECT APP NAME (e.g. "BGMI", "Free Fire", "Instagram") ====================
             else -> {
                 val appQuery = actionExecutor.cleanVoiceCommandToAppName(command)
                 val (success, matchedLabel) = actionExecutor.openAppByName(appQuery)
                 if (success) {
                     "Opening $matchedLabel"
                 } else {
-                    // Fallback to web search if not an app or built-in action
+                    // Final fallback: Google search for anything unrecognized
                     actionExecutor.searchGoogleDeep(command)
                 }
             }
@@ -248,6 +355,7 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
      * - "open chrome and search best ai tools"
      * - "open play store and search bgmi"
      * - "youtube ma trader room search kar"
+     * - "instagram par search karo cricket"
      */
     private fun handleCompoundOpenAndSearch(command: String): String? {
         val searchDelimiters = listOf(
@@ -261,36 +369,32 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
             " ma search kar ",
             " ma search ",
             " par search kar ",
-            " par search "
+            " par search ",
+            " mein search kar ",
+            " mein search "
         )
 
         for (delimiter in searchDelimiters) {
             if (command.contains(delimiter)) {
                 val parts = command.split(delimiter, limit = 2)
                 if (parts.size == 2) {
-                    val rawApp = parts[0].replace("open ", "").replace("launch ", "").replace("start ", "").trim()
-                    val query = parts[1].replace("search kar", "").replace("search", "").replace("kar", "").trim()
+                    val rawApp = parts[0]
+                        .replace("open ", "").replace("launch ", "").replace("start ", "")
+                        .replace("chalu kar ", "").trim()
+                    val query = parts[1]
+                        .replace("search kar", "").replace("search", "")
+                        .replace("kar", "").trim()
 
                     if (rawApp.isNotEmpty() && query.isNotEmpty()) {
                         return when {
-                            rawApp.contains("whatsapp") -> {
-                                actionExecutor.openWhatsAppChat(query)
-                            }
-                            rawApp.contains("youtube") -> {
-                                actionExecutor.searchYouTubeDeep(query)
-                            }
-                            rawApp.contains("chrome") || rawApp.contains("google") || rawApp.contains("browser") -> {
-                                actionExecutor.searchGoogleDeep(query)
-                            }
-                            rawApp.contains("play store") || rawApp.contains("store") -> {
-                                actionExecutor.searchPlayStoreDeep(query)
-                            }
-                            rawApp.contains("maps") || rawApp.contains("navigation") -> {
-                                actionExecutor.searchMapsDeep(query)
-                            }
-                            rawApp.contains("spotify") || rawApp.contains("music") -> {
-                                actionExecutor.searchSpotifyDeep(query)
-                            }
+                            rawApp.contains("whatsapp") -> actionExecutor.openWhatsAppChat(query)
+                            rawApp.contains("youtube") -> actionExecutor.searchYouTubeDeep(query)
+                            rawApp.contains("chrome") || rawApp.contains("google") || rawApp.contains("browser") -> actionExecutor.searchGoogleDeep(query)
+                            rawApp.contains("play store") || rawApp.contains("store") -> actionExecutor.searchPlayStoreDeep(query)
+                            rawApp.contains("maps") || rawApp.contains("navigation") -> actionExecutor.searchMapsDeep(query)
+                            rawApp.contains("spotify") || rawApp.contains("music") -> actionExecutor.searchSpotifyDeep(query)
+                            rawApp.contains("instagram") -> actionExecutor.searchInstagramUser(query)
+                            rawApp.contains("twitter") -> actionExecutor.searchTwitter(query)
                             else -> {
                                 val (success, label) = actionExecutor.openAppByName(rawApp)
                                 if (success) {
@@ -305,6 +409,37 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                 }
             }
         }
+        return null
+    }
+
+    private fun extractWhatsAppMessageDetails(command: String): Pair<String, String>? {
+        // Pattern 1: Gujarati "whatsapp ma [target] ne [message] moklo"
+        val gujPattern = Regex("(?:whatsapp|વોટ્સએપ)\\s*(?:ma|માં|par|પર)?\\s*(.+?)\\s*(?:ne|ને|ko|કો)\\s*(.+?)\\s*(?:message|મેસેજ|msg)?\\s*(?:moklo|મોકલો|send kar|bhejo|સેન્ડ કર)")
+        val gujMatch = gujPattern.find(command)
+        if (gujMatch != null) {
+            val target = gujMatch.groupValues[1].trim()
+            val msg = gujMatch.groupValues[2].trim()
+            if (target.isNotEmpty() && msg.isNotEmpty()) return Pair(target, msg)
+        }
+
+        // Pattern 2: English "send message to [target] on whatsapp saying [message]"
+        val enPattern = Regex("send(?: a)? (?:whatsapp )?message to (.+?)(?: on whatsapp)?(?: saying| that| with text)? (.+)")
+        val enMatch = enPattern.find(command)
+        if (enMatch != null) {
+            val target = enMatch.groupValues[1].replace("on whatsapp", "").trim()
+            val msg = enMatch.groupValues[2].trim()
+            if (target.isNotEmpty() && msg.isNotEmpty()) return Pair(target, msg)
+        }
+
+        // Pattern 3: "message [target] on whatsapp [message]"
+        val enPattern2 = Regex("(?:whatsapp )?message (.+?) (?:on whatsapp|saying|that) (.+)")
+        val enMatch2 = enPattern2.find(command)
+        if (enMatch2 != null) {
+            val target = enMatch2.groupValues[1].trim()
+            val msg = enMatch2.groupValues[2].trim()
+            if (target.isNotEmpty() && msg.isNotEmpty()) return Pair(target, msg)
+        }
+
         return null
     }
 }

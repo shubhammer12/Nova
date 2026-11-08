@@ -40,6 +40,12 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun SettingsScreen(
     onClearHistory: () -> Unit = {},
+    isBackgroundVoiceEnabled: Boolean = false,
+    onToggleBackgroundVoice: (Boolean) -> Unit = {},
+    isAccessibilityEnabled: Boolean = false,
+    onOpenAccessibilitySettings: () -> Unit = {},
+    isBatteryOptimizationIgnored: Boolean = false,
+    onRequestIgnoreBatteryOptimization: () -> Unit = {},
     isUninstallProtectionEnabled: Boolean = false,
     onToggleUninstallProtection: (Boolean) -> Unit = {},
     isCallAnnouncerEnabled: Boolean = true,
@@ -79,6 +85,141 @@ fun SettingsScreen(
             color = Color.White
         )
         Spacer(modifier = Modifier.height(16.dp))
+
+        // 0. Always-On "Hey Nova" Voice & Autonomous Actions Card
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = cardBackground),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (isBackgroundVoiceEnabled) accentCyan.copy(alpha = 0.6f) else Color.Transparent)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "⚡ Always-On \"Hey Nova\"",
+                            fontWeight = FontWeight.Bold,
+                            color = accentCyan,
+                            fontSize = 17.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isBackgroundVoiceEnabled) "🟢 Active • Say \"Hey Nova\" anytime from anywhere" else "⚪ Inactive • Tap switch to listen in background",
+                            color = if (isBackgroundVoiceEnabled) primaryGreen else Color.Gray,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Switch(
+                        checked = isBackgroundVoiceEnabled,
+                        onCheckedChange = { onToggleBackgroundVoice(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = accentCyan
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Runs Nova in background. Speak \"Hey Nova\" to execute calls, timers, apps, WhatsApp messages, and multi-step tasks hands-free.",
+                    color = textLight.copy(alpha = 0.8f),
+                    fontSize = 12.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Autonomous Accessibility Sub-Card
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF0F131D))
+                        .clickable { onOpenAccessibilitySettings() }
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "🤖 Auto Task Automation (Accessibility)",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isAccessibilityEnabled) "✅ Active • Can type & click buttons automatically" else "⚠️ Required to auto-send messages & click screens",
+                            color = if (isAccessibilityEnabled) primaryGreen else Color(0xFFFFB74D),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Button(
+                        onClick = onOpenAccessibilitySettings,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isAccessibilityEnabled) Color(0xFF1E293B) else accentCyan
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isAccessibilityEnabled) "Active" else "Enable",
+                            color = if (isAccessibilityEnabled) primaryGreen else Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Battery Optimization Sub-Card
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF0F131D))
+                        .clickable { onRequestIgnoreBatteryOptimization() }
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "🔋 Unrestricted Battery Mode",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isBatteryOptimizationIgnored) "✅ Protected against background battery kill" else "⚠️ Recommended to keep Nova awake 24/7",
+                            color = if (isBatteryOptimizationIgnored) primaryGreen else Color(0xFFFFB74D),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Button(
+                        onClick = onRequestIgnoreBatteryOptimization,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isBatteryOptimizationIgnored) Color(0xFF1E293B) else Color(0xFF334155)
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isBatteryOptimizationIgnored) "Protected" else "Fix",
+                            color = if (isBatteryOptimizationIgnored) primaryGreen else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
 
         // 1. Nova Voice Assistant Audio & Clarity Card
         Card(

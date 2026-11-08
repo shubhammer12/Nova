@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Nova</string>
+    <string name="accessibility_service_description">Nova AI Accessibility Service enables Nova to dynamically perform tasks on your screen, like typing messages, opening apps, clicking buttons, and completing multi-step voice commands automatically on your behalf.</string>
 </resources>

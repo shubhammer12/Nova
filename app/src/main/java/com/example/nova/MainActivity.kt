@@ -256,6 +256,21 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
             var voiceSpeedState by remember { mutableStateOf(initialVoiceSpeed) }
             var voicePitchState by remember { mutableStateOf(initialVoicePitch) }
 
+            val initialBackgroundVoice = remember { prefs.getBoolean("background_voice_enabled", false) }
+            var backgroundVoiceState by remember { mutableStateOf(initialBackgroundVoice) }
+            var accessibilityEnabledState by remember {
+                mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(this@MainActivity))
+            }
+            var batteryOptimizationIgnoredState by remember {
+                mutableStateOf(PermissionUtils.isIgnoringBatteryOptimizations(this@MainActivity))
+            }
+
+            LaunchedEffect(Unit) {
+                accessibilityEnabledState = PermissionUtils.isAccessibilityServiceEnabled(this@MainActivity)
+                batteryOptimizationIgnoredState = PermissionUtils.isIgnoringBatteryOptimizations(this@MainActivity)
+                backgroundVoiceState = com.example.nova.service.NovaBackgroundVoiceService.isRunning || prefs.getBoolean("background_voice_enabled", false)
+            }
+
             fun saveAssistantVoiceStyle(style: String) {
                 prefs.edit().putString("voice_style", style).apply()
                 voiceStyleState = style
@@ -388,6 +403,38 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
                                         userSpokenText.value = ""
                                         assistantResponseText.value = ""
                                         Toast.makeText(this@MainActivity, "Conversation memory cleared!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    isBackgroundVoiceEnabled = backgroundVoiceState,
+                                    onToggleBackgroundVoice = { enabled ->
+                                        if (enabled) {
+                                            if (!PermissionUtils.hasAllPermissions(this@MainActivity)) {
+                                                val missing = PermissionUtils.getMissingPermissions(this@MainActivity).toTypedArray()
+                                                permissionLauncher.launch(missing)
+                                            }
+                                            if (!PermissionUtils.canDrawOverlays(this@MainActivity)) {
+                                                PermissionUtils.openOverlaySettings(this@MainActivity)
+                                                Toast.makeText(this@MainActivity, "Enable 'Display over other apps' for Nova Voice Popup", Toast.LENGTH_LONG).show()
+                                            }
+                                            com.example.nova.service.NovaBackgroundVoiceService.start(this@MainActivity)
+                                            backgroundVoiceState = true
+                                            Toast.makeText(this@MainActivity, "⚡ Nova Voice Assistant Active! Say 'Hey Nova'", Toast.LENGTH_LONG).show()
+
+                                            if (!PermissionUtils.isAccessibilityServiceEnabled(this@MainActivity)) {
+                                                Toast.makeText(this@MainActivity, "Tip: Enable Nova Accessibility Service to auto-send WhatsApp messages & tap screens!", Toast.LENGTH_LONG).show()
+                                            }
+                                        } else {
+                                            com.example.nova.service.NovaBackgroundVoiceService.stop(this@MainActivity)
+                                            backgroundVoiceState = false
+                                            Toast.makeText(this@MainActivity, "Nova Background Voice Assistant stopped.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    isAccessibilityEnabled = accessibilityEnabledState,
+                                    onOpenAccessibilitySettings = {
+                                        PermissionUtils.openAccessibilitySettings(this@MainActivity)
+                                    },
+                                    isBatteryOptimizationIgnored = batteryOptimizationIgnoredState,
+                                    onRequestIgnoreBatteryOptimization = {
+                                        PermissionUtils.requestIgnoreBatteryOptimizations(this@MainActivity)
                                     },
                                     isUninstallProtectionEnabled = isProtectionActive,
                                     onToggleUninstallProtection = { enabled ->
@@ -568,6 +615,11 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
             assistantState.value = AssistantState.PROCESSING
             statusMessage.value = "Processing command..."
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hasPermissionsState.value = PermissionUtils.hasAllPermissions(this)
     }
 
     override fun onDestroy() {

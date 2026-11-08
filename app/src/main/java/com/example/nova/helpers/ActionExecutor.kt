@@ -333,9 +333,17 @@ class ActionExecutor(val context: Context) {
         }
 
         // Check for calling intent
-        val callingKeywords = listOf("call", "dial", "phone", "lagao", "laga", "ring")
+        val callingKeywords = listOf(
+            // English
+            "call", "dial", "phone", "ring",
+            // Hindi
+            "lagao", "laga", "milao", "mila do",
+            // Gujarati
+            "fon kar", "call kar", "call karo", "call lagavo", "fon lagavo",
+            "ne call kar", "ne fon kar", "phone lagavo"
+        )
         val hasCallingKeyword = callingKeywords.any { keyword ->
-            text.contains(Regex("\\b$keyword\\b")) || text.contains(keyword)
+            text.contains(keyword)
         }
 
         if (!hasCallingKeyword) {
@@ -910,6 +918,47 @@ class ActionExecutor(val context: Context) {
         return openWebsite("https://www.google.com/search?q=${Uri.encode(query)}")
     }
 
+    fun searchInstagramUser(query: String): String {
+        return try {
+            // Try opening Instagram search directly
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/${Uri.encode(query.replace(" ", ""))}")).apply {
+                setPackage("com.instagram.android")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            "Searching Instagram for \"$query\""
+        } catch (e: Exception) {
+            openWebsite("https://www.instagram.com/${Uri.encode(query.replace(" ", ""))}")
+            "Searching Instagram for \"$query\""
+        }
+    }
+
+    fun searchTwitter(query: String): String {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://twitter.com/search?q=${Uri.encode(query)}")).apply {
+                setPackage("com.twitter.android")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            "Searching Twitter for \"$query\""
+        } catch (e: Exception) {
+            try {
+                val xIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://x.com/search?q=${Uri.encode(query)}")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(xIntent)
+            } catch (_: Exception) {}
+            "Searching Twitter/X for \"$query\""
+        }
+    }
+
+    fun getUserName(): String {
+        return try {
+            context.getSharedPreferences("nova_prefs", Context.MODE_PRIVATE)
+                .getString("profile_custom_name", "Shubham")?.ifBlank { "Shubham" } ?: "Shubham"
+        } catch (_: Exception) { "Shubham" }
+    }
+
     fun openWebsite(url: String): String {
         return try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
@@ -956,6 +1005,120 @@ class ActionExecutor(val context: Context) {
             "Opening camera"
         } catch (e: Exception) {
             "Unable to open camera."
+        }
+    }
+
+    // --- AUTONOMOUS ACCESSIBILITY ACTIONS ---
+
+    fun autoSendWhatsAppMessage(target: String, message: String): String {
+        return try {
+            val cleanTarget = target.trim()
+            val cleanMessage = message.trim()
+            val directDigits = cleanTarget.filter { it.isDigit() }
+
+            val targetNumber = if (directDigits.length >= 10) {
+                formatPhoneNumberForWhatsApp(directDigits)
+            } else {
+                val matches = findMatchingContacts(cleanTarget)
+                if (matches.isNotEmpty()) formatPhoneNumberForWhatsApp(matches[0].number) else null
+            }
+
+            if (targetNumber != null) {
+                val encodedText = Uri.encode(cleanMessage)
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse("https://api.whatsapp.com/send?phone=$targetNumber&text=$encodedText")
+                    setPackage("com.whatsapp")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+
+                // If Nova Accessibility Service is running, automatically press the Send button after UI loads
+                val accessibility = com.example.nova.service.NovaAccessibilityService.instance
+                if (accessibility != null) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        accessibility.clickSendButton()
+                    }, 800L)
+                    "Sending WhatsApp message to $cleanTarget"
+                } else {
+                    "Opening WhatsApp chat with your message ready. Tap send or enable Nova Accessibility Service in Settings for hands-free auto-sending."
+                }
+            } else {
+                openWhatsAppChat(cleanTarget)
+                "Could not find contact for $cleanTarget. Opening WhatsApp."
+            }
+        } catch (e: Exception) {
+            openAppByName("whatsapp")
+            "Opening WhatsApp"
+        }
+    }
+
+    fun executeGlobalHome(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)) {
+            "Going to Home Screen"
+        } else {
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            "Going to Home Screen"
+        }
+    }
+
+    fun executeGlobalBack(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)) {
+            "Going back"
+        } else {
+            "Please enable Nova Accessibility Service in Settings to allow automatic back navigation."
+        }
+    }
+
+    fun executeGlobalRecents(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)) {
+            "Opening Recent Apps"
+        } else {
+            "Please enable Nova Accessibility Service in Settings."
+        }
+    }
+
+    fun executeGlobalNotifications(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)) {
+            "Opening Notifications"
+        } else {
+            "Please enable Nova Accessibility Service in Settings."
+        }
+    }
+
+    fun executeGlobalQuickSettings(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)) {
+            "Opening Quick Settings"
+        } else {
+            "Please enable Nova Accessibility Service in Settings."
+        }
+    }
+
+    fun executeGlobalScreenshot(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
+            service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)) {
+            "Taking screenshot"
+        } else {
+            "Please enable Nova Accessibility Service in Settings to take screenshots hands-free."
+        }
+    }
+
+    fun executeGlobalLockScreen(): String {
+        val service = com.example.nova.service.NovaAccessibilityService.instance
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
+            service != null && service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)) {
+            "Locking screen"
+        } else {
+            "Please enable Nova Accessibility Service in Settings to lock your screen."
         }
     }
 
