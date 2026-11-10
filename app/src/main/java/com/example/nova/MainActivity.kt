@@ -414,9 +414,6 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
                                     onMicButtonClick = { toggleListening() },
                                     onOpenProfile = {
                                         activeNavScreen = NovaScreen.PROFILE
-                                    },
-                                    onSuggestionClick = { command ->
-                                        onSpeechResult(command)
                                     }
                                 )
                             }
@@ -1419,8 +1416,7 @@ fun VoiceAssistantScreen(
     onUpdateEmoji: (String) -> Unit = {},
     onRequestPermissions: () -> Unit,
     onMicButtonClick: () -> Unit,
-    onOpenProfile: () -> Unit,
-    onSuggestionClick: (String) -> Unit = {}
+    onOpenProfile: () -> Unit
 ) {
     val darkBackground = Color(0xFF10121A)
     val cardBackground = Color(0xFF1B1E2B)
@@ -1721,53 +1717,17 @@ fun VoiceAssistantScreen(
                     }
                 }
 
-                // 3. Quick Action Suggestion Chips
-                val suggestions = listOf(
-                    "💬 કેમ છો Nova?",
-                    "😂 એક જોક સંભળાવો",
-                    "🔦 Torch ચાલુ કરો",
-                    "☀️ આજનું હવામાન",
-                    "⏰ 5 મિનિટ નું ટાઈમર",
-                    "🎵 YouTube પર ગીતો વગાડો"
-                )
-                androidx.compose.foundation.lazy.LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-                ) {
-                    items(suggestions.size) { index ->
-                        val item = suggestions[index]
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xFF1E2433))
-                                .border(1.dp, Color(0xFF334155), RoundedCornerShape(20.dp))
-                                .clickable { onSuggestionClick(item) }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = item,
-                                color = Color(0xFFE0E6ED),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-
-                // 4. 3D Holographic AI Microphone Core & Audio Visualizer
+                // 3. 3D Holographic AI Microphone Core & Audio Visualizer
                 Holographic3DMicrophoneCore(
                     assistantState = assistantState,
                     rmsDb = rmsDb,
                     onMicButtonClick = onMicButtonClick,
-                    modifier = Modifier.padding(vertical = 12.dp)
+                    modifier = Modifier.padding(vertical = 16.dp)
                 )
 
                 // Quick Helper Hints
                 Text(
-                    text = "માઇક દબાવો અથવા ઉપરના પ્રશ્ન પર ક્લિક કરો",
+                    text = "Tap microphone to speak",
                     fontSize = 12.sp,
                     color = Color.Gray,
                     textAlign = TextAlign.Center,
