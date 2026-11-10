@@ -18,7 +18,10 @@ class BiometricHelper(private val activity: Activity) {
         return keyguardManager.isDeviceSecure
     }
 
-    fun authenticateForUninstall(
+    fun authenticate(
+        title: String = "Confirm Fingerprint",
+        subtitle: String = "Scan your display fingerprint to verify identity",
+        negativeButtonText: String = "Cancel",
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
@@ -45,10 +48,10 @@ class BiometricHelper(private val activity: Activity) {
 
             try {
                 val prompt = BiometricPrompt.Builder(activity)
-                    .setTitle("Confirm Fingerprint to Uninstall Nova")
-                    .setSubtitle("Scan your display fingerprint to authorize Nova uninstallation")
-                    .setNegativeButton("Cancel", executor) { _, _ ->
-                        onError("Uninstallation Canceled")
+                    .setTitle(title)
+                    .setSubtitle(subtitle)
+                    .setNegativeButton(negativeButtonText, executor) { _, _ ->
+                        onError("Authentication Canceled")
                     }
                     .build()
 
@@ -60,5 +63,18 @@ class BiometricHelper(private val activity: Activity) {
         } else {
             onSuccess()
         }
+    }
+
+    fun authenticateForUninstall(
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        authenticate(
+            title = "Confirm Fingerprint to Disable Protection",
+            subtitle = "Scan your display fingerprint to authorize this action",
+            negativeButtonText = "Cancel",
+            onSuccess = onSuccess,
+            onError = onError
+        )
     }
 }

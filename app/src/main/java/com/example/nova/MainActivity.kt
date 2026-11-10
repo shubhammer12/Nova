@@ -1,5 +1,6 @@
 package com.example.nova
 
+import android.app.NotificationManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -10,6 +11,9 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import com.example.nova.helpers.BiometricHelper
 import com.example.nova.receiver.NovaDeviceAdminReceiver
 import androidx.activity.ComponentActivity
@@ -68,11 +72,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -201,10 +208,23 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
         hasPermissionsState.value = PermissionUtils.hasAllPermissions(this)
         historyListState.value = loadHistoryFromPrefs(this)
 
+        // Clear any old/lingering foreground notifications immediately and disable background mode
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancelAll()
+        } catch (_: Exception) {}
+
+        getSharedPreferences("nova_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("background_voice_enabled", false)
+            .apply()
+
         setContent {
             var activeNavScreen by remember { mutableStateOf(NovaScreen.ASSISTANT) }
 
             val prefs = remember { getSharedPreferences("nova_prefs", Context.MODE_PRIVATE) }
+            val dpm = remember { getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager }
+            val adminComp = remember { ComponentName(this@MainActivity, NovaDeviceAdminReceiver::class.java) }
 
             val initialProfileName = remember { prefs.getString("profile_custom_name", "Shubham") ?: "Shubham" }
             val initialHomeName = remember { prefs.getString("home_custom_name", "Shubham") ?: "Shubham" }
@@ -256,19 +276,40 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
             var voiceSpeedState by remember { mutableStateOf(initialVoiceSpeed) }
             var voicePitchState by remember { mutableStateOf(initialVoicePitch) }
 
-            val initialBackgroundVoice = remember { prefs.getBoolean("background_voice_enabled", false) }
-            var backgroundVoiceState by remember { mutableStateOf(initialBackgroundVoice) }
-            var accessibilityEnabledState by remember {
-                mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(this@MainActivity))
+            val initialProtectionActive = remember {
+                dpm.isAdminActive(adminComp) || prefs.getBoolean("uninstall_protection_enabled", false)
             }
-            var batteryOptimizationIgnoredState by remember {
-                mutableStateOf(PermissionUtils.isIgnoringBatteryOptimizations(this@MainActivity))
+            var uninstallProtectionState by remember { mutableStateOf(initialProtectionActive) }
+
+            fun refreshAllSettingsStates() {
+                val adminActive = dpm.isAdminActive(adminComp)
+                val storedProtection = prefs.getBoolean("uninstall_protection_enabled", false)
+                uninstallProtectionState = adminActive || storedProtection
+                if (adminActive && !storedProtection) {
+                    prefs.edit().putBoolean("uninstall_protection_enabled", true).apply()
+                }
+                callAnnouncerEnabledState = prefs.getBoolean("call_announcer_enabled", true)
+                callAnnouncerLangState = prefs.getString("call_announcer_language", "gu") ?: "gu"
+                callAnnouncerRepeatsState = prefs.getInt("call_announcer_repeats", 2)
+                voiceStyleState = prefs.getString("voice_style", "clear_female") ?: "clear_female"
+                voiceSpeedState = prefs.getFloat("voice_speed", 0.92f)
+                voicePitchState = prefs.getFloat("voice_pitch", 1.04f)
+            }
+
+            DisposableEffect(this@MainActivity) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        refreshAllSettingsStates()
+                    }
+                }
+                this@MainActivity.lifecycle.addObserver(observer)
+                onDispose {
+                    this@MainActivity.lifecycle.removeObserver(observer)
+                }
             }
 
             LaunchedEffect(Unit) {
-                accessibilityEnabledState = PermissionUtils.isAccessibilityServiceEnabled(this@MainActivity)
-                batteryOptimizationIgnoredState = PermissionUtils.isIgnoringBatteryOptimizations(this@MainActivity)
-                backgroundVoiceState = com.example.nova.service.NovaBackgroundVoiceService.isRunning || prefs.getBoolean("background_voice_enabled", false)
+                refreshAllSettingsStates()
             }
 
             fun saveAssistantVoiceStyle(style: String) {
@@ -392,10 +433,6 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
                                 )
                             }
                             NovaScreen.SETTINGS -> {
-                                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                                val adminComp = ComponentName(this@MainActivity, NovaDeviceAdminReceiver::class.java)
-                                val isProtectionActive = dpm.isAdminActive(adminComp)
-
                                 SettingsScreen(
                                     onClearHistory = {
                                         historyListState.value = emptyList()
@@ -404,44 +441,13 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
                                         assistantResponseText.value = ""
                                         Toast.makeText(this@MainActivity, "Conversation memory cleared!", Toast.LENGTH_SHORT).show()
                                     },
-                                    isBackgroundVoiceEnabled = backgroundVoiceState,
-                                    onToggleBackgroundVoice = { enabled ->
-                                        if (enabled) {
-                                            if (!PermissionUtils.hasAllPermissions(this@MainActivity)) {
-                                                val missing = PermissionUtils.getMissingPermissions(this@MainActivity).toTypedArray()
-                                                permissionLauncher.launch(missing)
-                                            }
-                                            if (!PermissionUtils.canDrawOverlays(this@MainActivity)) {
-                                                PermissionUtils.openOverlaySettings(this@MainActivity)
-                                                Toast.makeText(this@MainActivity, "Enable 'Display over other apps' for Nova Voice Popup", Toast.LENGTH_LONG).show()
-                                            }
-                                            com.example.nova.service.NovaBackgroundVoiceService.start(this@MainActivity)
-                                            backgroundVoiceState = true
-                                            Toast.makeText(this@MainActivity, "⚡ Nova Voice Assistant Active! Say 'Hey Nova'", Toast.LENGTH_LONG).show()
-
-                                            if (!PermissionUtils.isAccessibilityServiceEnabled(this@MainActivity)) {
-                                                Toast.makeText(this@MainActivity, "Tip: Enable Nova Accessibility Service to auto-send WhatsApp messages & tap screens!", Toast.LENGTH_LONG).show()
-                                            }
-                                        } else {
-                                            com.example.nova.service.NovaBackgroundVoiceService.stop(this@MainActivity)
-                                            backgroundVoiceState = false
-                                            Toast.makeText(this@MainActivity, "Nova Background Voice Assistant stopped.", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    isAccessibilityEnabled = accessibilityEnabledState,
-                                    onOpenAccessibilitySettings = {
-                                        PermissionUtils.openAccessibilitySettings(this@MainActivity)
-                                    },
-                                    isBatteryOptimizationIgnored = batteryOptimizationIgnoredState,
-                                    onRequestIgnoreBatteryOptimization = {
-                                        PermissionUtils.requestIgnoreBatteryOptimizations(this@MainActivity)
-                                    },
-                                    isUninstallProtectionEnabled = isProtectionActive,
+                                    isUninstallProtectionEnabled = uninstallProtectionState,
                                     onToggleUninstallProtection = { enabled ->
-                                        val bioHelper = BiometricHelper(this@MainActivity)
-                                        bioHelper.authenticateForUninstall(
-                                            onSuccess = {
-                                                if (enabled) {
+                                        if (enabled) {
+                                            prefs.edit().putBoolean("uninstall_protection_enabled", true).apply()
+                                            uninstallProtectionState = true
+                                            if (!dpm.isAdminActive(adminComp)) {
+                                                try {
                                                     val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                                                         putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
                                                         putExtra(
@@ -450,15 +456,32 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
                                                         )
                                                     }
                                                     startActivity(intent)
-                                                } else {
-                                                    dpm.removeActiveAdmin(adminComp)
-                                                    Toast.makeText(this@MainActivity, "Uninstall protection disabled.", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(this@MainActivity, "Could not open Device Admin settings", Toast.LENGTH_SHORT).show()
                                                 }
-                                            },
-                                            onError = { err ->
-                                                Toast.makeText(this@MainActivity, "Fingerprint verification required: $err", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(this@MainActivity, "Nova Uninstall Protection is Active!", Toast.LENGTH_SHORT).show()
                                             }
-                                        )
+                                        } else {
+                                            val bioHelper = BiometricHelper(this@MainActivity)
+                                            bioHelper.authenticate(
+                                                title = "Disable Uninstall Protection",
+                                                subtitle = "Scan your display fingerprint to turn off uninstall protection",
+                                                negativeButtonText = "Cancel",
+                                                onSuccess = {
+                                                    try {
+                                                        dpm.removeActiveAdmin(adminComp)
+                                                    } catch (_: Exception) {}
+                                                    prefs.edit().putBoolean("uninstall_protection_enabled", false).apply()
+                                                    uninstallProtectionState = false
+                                                    Toast.makeText(this@MainActivity, "Uninstall protection disabled.", Toast.LENGTH_SHORT).show()
+                                                },
+                                                onError = { err ->
+                                                    uninstallProtectionState = true
+                                                    Toast.makeText(this@MainActivity, "Fingerprint verification required: $err", Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
+                                        }
                                     },
                                     isCallAnnouncerEnabled = callAnnouncerEnabledState,
                                     onToggleCallAnnouncer = { enabled ->
@@ -619,7 +642,8 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
 
     override fun onResume() {
         super.onResume()
-        hasPermissionsState.value = PermissionUtils.hasAllPermissions(this)
+        val hasPerms = PermissionUtils.hasAllPermissions(this)
+        hasPermissionsState.value = hasPerms
     }
 
     override fun onDestroy() {

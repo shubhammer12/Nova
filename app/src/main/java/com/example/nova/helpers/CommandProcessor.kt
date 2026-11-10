@@ -398,7 +398,12 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
                             else -> {
                                 val (success, label) = actionExecutor.openAppByName(rawApp)
                                 if (success) {
-                                    actionExecutor.searchGoogleDeep(query)
+                                    // Trigger NovaAccessibilityService deep search once the app opens
+                                    com.example.nova.service.NovaAccessibilityService.instance?.let { a11y ->
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            a11y.performDeepSearch(query)
+                                        }, 1200L)
+                                    }
                                     "Opening $label and searching for \"$query\""
                                 } else {
                                     actionExecutor.searchGoogleDeep("$rawApp $query")

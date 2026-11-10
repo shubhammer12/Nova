@@ -355,7 +355,6 @@ class TTSHelper(
             }
         })
 
-        onStart()
         engine.speak(cleanedText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 

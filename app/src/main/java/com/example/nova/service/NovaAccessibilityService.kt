@@ -2,8 +2,14 @@ package com.example.nova.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -30,7 +36,7 @@ class NovaAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Event processing hook for active window changes
+        // Event handling for accessibility automation
     }
 
     override fun onInterrupt() {
@@ -177,6 +183,155 @@ class NovaAccessibilityService : AccessibilityService() {
             val child = node.getChild(i) ?: continue
             collectMatchingNodes(child, query, exact, results)
         }
+    }
+
+    /**
+     * Autonomously locates search bars/buttons in the active third-party app (YouTube, Play Store, Settings, Chrome, etc.),
+     * types the search query, and triggers search.
+     */
+    fun performDeepSearch(searchQuery: String, onComplete: ((Boolean) -> Unit)? = null) {
+        val root = rootInActiveWindow
+        if (root == null) {
+            onComplete?.invoke(false)
+            return
+        }
+
+        // 1. First check if an editable search field is already visible and active
+        val editable = findEditableNode(root)
+        if (editable != null) {
+            typeIntoSearchField(editable, searchQuery, onComplete)
+            return
+        }
+
+        // 2. Look for search buttons / icons across common apps
+        val searchKeywords = listOf(
+            "search", "શોધો", "सर्च", "खोजें", "find",
+            "search query", "search youtube", "search google",
+            "search apps", "search bar", "search or type url"
+        )
+        val searchIds = listOf(
+            "com.google.android.youtube:id/menu_item_0",
+            "com.google.android.youtube:id/search_button",
+            "com.android.vending:id/search_box_idle_text",
+            "com.android.vending:id/search_bar",
+            "com.google.android.googlequicksearchbox:id/googleapp_search_box",
+            "org.chromium.chrome:id/search_box_text",
+            "org.chromium.chrome:id/url_bar",
+            "com.spotify.music:id/find_search_field",
+            "com.whatsapp:id/menuitem_search",
+            "com.whatsapp.w4b:id/menuitem_search",
+            "android:id/search_button",
+            "android:id/search_src_text"
+        )
+
+        // Try search view IDs first
+        for (id in searchIds) {
+            val nodes = root.findAccessibilityNodeInfosByViewId(id)
+            if (!nodes.isNullOrEmpty()) {
+                if (performClickOnNodeOrParent(nodes[0])) {
+                    mainHandler.postDelayed({
+                        val newRoot = rootInActiveWindow
+                        val newEditable = newRoot?.let { findEditableNode(it) }
+                        if (newEditable != null) {
+                            typeIntoSearchField(newEditable, searchQuery, onComplete)
+                        } else {
+                            onComplete?.invoke(false)
+                        }
+                    }, 400L)
+                    return
+                }
+            }
+        }
+
+        // Try text / content descriptions
+        for (kw in searchKeywords) {
+            val matchingNodes = mutableListOf<AccessibilityNodeInfo>()
+            collectMatchingNodes(root, kw, exact = false, matchingNodes)
+            for (node in matchingNodes) {
+                if (performClickOnNodeOrParent(node)) {
+                    mainHandler.postDelayed({
+                        val newRoot = rootInActiveWindow
+                        val newEditable = newRoot?.let { findEditableNode(it) }
+                        if (newEditable != null) {
+                            typeIntoSearchField(newEditable, searchQuery, onComplete)
+                        } else {
+                            onComplete?.invoke(false)
+                        }
+                    }, 400L)
+                    return
+                }
+            }
+        }
+
+        Log.w(TAG, "No search button or field found on screen")
+        onComplete?.invoke(false)
+    }
+
+    private fun typeIntoSearchField(
+        fieldNode: AccessibilityNodeInfo,
+        query: String,
+        onComplete: ((Boolean) -> Unit)?
+    ) {
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, query)
+        }
+        fieldNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val typed = fieldNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+
+        mainHandler.postDelayed({
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                fieldNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            }
+            clickByText("search")
+            onComplete?.invoke(typed)
+        }, 350L)
+    }
+
+    /**
+     * Dispatches an exact coordinate click gesture on screen.
+     */
+    fun performGestureClick(x: Float, y: Float, onComplete: ((Boolean) -> Unit)? = null): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            onComplete?.invoke(false)
+            return false
+        }
+        val path = android.graphics.Path().apply {
+            moveTo(x, y)
+        }
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 50)
+        val gesture = android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build()
+
+        return dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                super.onCompleted(gestureDescription)
+                onComplete?.invoke(true)
+            }
+
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                super.onCancelled(gestureDescription)
+                onComplete?.invoke(false)
+            }
+        }, null)
+    }
+
+    /**
+     * Performs a scroll gesture forward or backward on the active window.
+     */
+    fun performScroll(forward: Boolean): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val scrollable = findScrollableNode(root) ?: return false
+        val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        return scrollable.performAction(action)
+    }
+
+    private fun findScrollableNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (root.isScrollable) return root
+        for (i in 0 until root.childCount) {
+            val child = root.getChild(i) ?: continue
+            val result = findScrollableNode(child)
+            if (result != null) return result
+        }
+        return null
     }
 
     /**

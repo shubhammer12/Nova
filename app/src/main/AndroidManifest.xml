@@ -12,14 +12,7 @@
     <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS"
         tools:ignore="DeprecatedPermission" />
 
-    <!-- Background & Power -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!-- Notifications -->
+    <!-- Notifications & Vibration -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -143,21 +136,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Nova Floating Voice Assistant Popup (Triggered once on "Hey Nova", auto-closes after response) -->
-        <activity
-            android:name=".presentation.ui.NovaVoicePopupActivity"
-            android:theme="@style/Theme.Nova.Translucent"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTop"
-            android:windowSoftInputMode="adjustNothing"
-            android:exported="false" />
-
-        <!-- Nova Background Voice Service (Hey Nova Continuous Voice Listener) -->
-        <service
-            android:name=".service.NovaBackgroundVoiceService"
-            android:foregroundServiceType="microphone"
-            android:exported="false" />
-
         <!-- Nova Accessibility Service for Autonomous Task Automation (Tapping, Typing, Navigation) -->
         <service
             android:name=".service.NovaAccessibilityService"
@@ -170,17 +148,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
-
-        <!-- Boot Receiver to Resume Background Voice Assistant on Phone Restart -->
-        <receiver
-            android:name=".receiver.NovaBootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
 
     </application>
 
