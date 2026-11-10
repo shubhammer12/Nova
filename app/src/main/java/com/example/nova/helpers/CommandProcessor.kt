@@ -36,21 +36,83 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
         }
 
         return when {
-            // ==================== GREETINGS ====================
-            command.contains("hello") || command.contains("hi nova") || command.contains("hey nova") ||
-            command.contains("kem cho") || command.contains("kaise ho") -> {
+            // ==================== SMART MATH CALCULATOR ====================
+            isMathCalculation(command) != null -> {
+                isMathCalculation(command)!!
+            }
+
+            // ==================== JOKES & HUMOR ====================
+            command.contains("joke") || command.contains("જોક") || command.contains("chutkula") ||
+            command.contains("hasao") || command.contains("હસાવો") || command.contains("ચુટકલો") -> {
+                getRandomJoke()
+            }
+
+            // ==================== SPIRITUAL & TRADITIONAL GREETINGS ====================
+            command.contains("jay shree krishna") || command.contains("jay shri krishna") ||
+            command.contains("જય શ્રી કૃષ્ણ") || command.contains("radhe radhe") || command.contains("રાધે રાધે") ||
+            command.contains("ram ram") || command.contains("રામ રામ") || command.contains("namaste") || command.contains("નમસ્તે") -> {
+                "જય શ્રી કૃષ્ણ! 🙏 ભગવાન તમારો આજનો દિવસ ખૂબ જ સુંદર, શાંત અને મંગલમય રાખે. કહો, આજે હું તમારી શું સેવા કરું?"
+            }
+
+            // ==================== GREETINGS & CASUAL TALK ====================
+            command.contains("kem cho") || command.contains("kem chho") || command.contains("કેમ છો") ||
+            command.contains("majama") || command.contains("મજામાં") -> {
                 val name = actionExecutor.getUserName()
-                "Hello $name! How can I assist you today?"
+                "હું એકદમ મજામાં અને ઉત્સાહમાં છું, $name! તમે કહો, આજે તમારો દિવસ કેવો રહ્યો?"
+            }
+
+            command.contains("hello") || command.contains("hi nova") || command.contains("hey nova") ||
+            command.contains("kaise ho") -> {
+                val name = actionExecutor.getUserName()
+                "Hello $name! I'm here and ready to help. What's on your mind today?"
+            }
+
+            command.contains("su kare chhe") || command.contains("su karo cho") || command.contains("શું કરે છે") ||
+            command.contains("kya kar rahe ho") || command.contains("what are you doing") -> {
+                "બસ તમારા નવા કમાન્ડની રાહ જોઉં છું! કહો, કોઈને કૉલ કરવો છે, વ્હોટ્સએપ મેસેજ મોકલવો છે કે ગીતો વગાડવા છે?"
             }
 
             command.contains("who are you") || command.contains("your name") ||
-            command.contains("tu kaun hai") || command.contains("tame kon cho") -> {
-                "I am Nova, your personal intelligent voice assistant."
+            command.contains("tu kaun hai") || command.contains("tame kon cho") ||
+            command.contains("તમે કોણ છો") || command.contains("તારું નામ") -> {
+                "હું Nova છું — તમારી સ્માર્ટ અને પર્સનલ AI આસિસ્ટન્ટ! હું તમારા ફોનને સંપૂર્ણપણે અવાજથી કંટ્રોલ કરી શકું છું."
             }
 
             command.contains("how are you") || command.contains("tu kaisa hai") || command.contains("tame kem cho") -> {
                 val name = actionExecutor.getUserName()
-                "I am doing great, $name! Ready to help you with anything."
+                "I am doing fantastic, $name! Ready to help you with anything."
+            }
+
+            command.contains("who made you") || command.contains("who created you") ||
+            command.contains("tane kone banavi") || command.contains("તને કોણે બનાવી") -> {
+                "મને એક પ્રતિભાશાળી ડેવલપરે તમારા જીવનને વધુ સરળ, ઝડપી અને સ્માર્ટ બનાવવા માટે બનાવી છે!"
+            }
+
+            command.contains("thank you") || command.contains("thanks") || command.contains("aabhar") ||
+            command.contains("dhanyavad") || command.contains("આભાર") || command.contains("ધન્યવાદ") -> {
+                "અરે આ તો મારી ફરજ છે! 😊 તમને મદદ કરીને મને ખૂબ આનંદ થયો."
+            }
+
+            command.contains("good morning") || command.contains("shubh prabhat") ||
+            command.contains("શુભ સવાર") || command.contains("સુપ્રભાત") -> {
+                "શુભ સવાર! ☀️ તમારો આજનો દિવસ ખૂબ જ સફળ અને ઉત્સાહવર્ધક રહે તેવી શુભકામનાઓ!"
+            }
+
+            command.contains("good night") || command.contains("shubh ratri") || command.contains("શુભ રાત્રી") -> {
+                "શુભ રાત્રી! 🌙 મીઠી ઊંઘ માણો, સ્વસ્થ રહો અને કાલે સવારે ફરી મળીશું."
+            }
+
+            command.contains("kantalo aave che") || command.contains("bore thav chu") ||
+            command.contains("મને કંટાળો") || command.contains("bore ho raha hu") -> {
+                "અરે કંટાળો શા માટે? ચાલો હું યુટ્યુબ પર તમારા મનપસંદ ગીતો વગાડું અથવા એક જોરદાર જોક સંભળાવું?"
+            }
+
+            command.contains("love you") || command.contains("i love you") || command.contains("હું તને પ્રેમ") -> {
+                "થેન્ક યુ! 😊 મને તમારા ડિજિટલ સાથી બનવાનો ગર્વ છે!"
+            }
+
+            command.contains("weather") || command.contains("vatavaran") || command.contains("હવામાન") || command.contains("mausam") -> {
+                "આજે વાતાવરણ ખુશનુમા અને સ્વચ્છ છે, તાપમાન આશરે ૨૮° સેલ્સિયસ છે. તમારો દિવસ ખૂબ જ સારો જશે!"
             }
 
             // ==================== SHARE NOVA APP ====================
@@ -446,5 +508,37 @@ class CommandProcessor(private val actionExecutor: ActionExecutor) {
         }
 
         return null
+    }
+
+    private fun isMathCalculation(cmd: String): String? {
+        val clean = cmd.replace("what is ", "").replace("calculate ", "")
+            .replace("ketla thaye", "").replace("ketla thay", "")
+            .replace("barabar", "").replace("equal to", "").trim()
+        val regex = Regex("""(\d+(?:\.\d+)?)\s*([+\-*/xX]|plus|minus|into|times|divided by|વત્તા|ઓછા|ગુણ્યા|ભાગ્યા)\s*(\d+(?:\.\d+)?)""")
+        val match = regex.find(clean) ?: return null
+        val num1 = match.groupValues[1].toDoubleOrNull() ?: return null
+        val op = match.groupValues[2].lowercase()
+        val num2 = match.groupValues[3].toDoubleOrNull() ?: return null
+
+        val result = when {
+            op in listOf("+", "plus", "વત્તા") -> num1 + num2
+            op in listOf("-", "minus", "ઓછા") -> num1 - num2
+            op in listOf("*", "x", "into", "times", "ગુણ્યા") -> num1 * num2
+            op in listOf("/", "divided by", "ભાગ્યા") -> if (num2 != 0.0) num1 / num2 else return "Cannot divide by zero."
+            else -> return null
+        }
+        val formattedResult = if (result % 1.0 == 0.0) result.toLong().toString() else "%.2f".format(result)
+        return "The answer is $formattedResult (જવાબ $formattedResult થાય છે)"
+    }
+
+    private fun getRandomJoke(): String {
+        val jokes = listOf(
+            "શિક્ષક: પપ્પુ, જો તારા એક ખિસ્સામાંથી ૫૦ રૂપિયા અને બીજામાંથી ૧૦૦ રૂપિયા મળે તો તારી પાસે શું હોય?\nપપ્પુ: સાહેબ, બીજા કોઈનું પેન્ટ! 😂",
+            "ડોક્ટર: તમારે રોજ ૫ કિલોમીટર ચાલવું પડશે.\nદર્દી: પણ સાહેબ, હું તો દરજી છું, હું ક્યાં ચાલીને જાવ? 😂",
+            "પત્ની: સાંભળો છો, આપણા લગ્નને ૧૦ વર્ષ પૂરા થઈ ગયા!\nપતિ: હા, મને તો લાગે છે હજી ગઈકાલની જ સજા છે! 😂",
+            "ગ્રાહક: ભાઈ, આ દાળમાં માખી કેમ તરી રહી છે?\nવેઈટર: કેમ કે એને હજી ડૂબતા નથી આવડતું સાહેબ! 😂",
+            "પપ્પુ: પપ્પા, મને નવો ફોન અપાવો ને!\nપપ્પા: પહેલા પરીક્ષામાં પાસ થઈને બતાવ.\nપપ્પુ: અરે પપ્પા, શરત તો એવી રાખો જે મારાથી થઈ શકે! 😂"
+        )
+        return jokes.random()
     }
 }

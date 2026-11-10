@@ -38,6 +38,9 @@ object CallAnnouncerManager : TextToSpeech.OnInitListener {
     private var isRinging = false
 
     private var appContextRef: WeakReference<Context>? = null
+    private var originalRingtoneVolume: Int = -1
+    private var isDucked: Boolean = false
+    private var audioManagerRef: WeakReference<android.media.AudioManager>? = null
 
     /**
      * Initializes TTS if not already done, prioritizing Google TTS for crystal clear voice.
@@ -100,6 +103,45 @@ object CallAnnouncerManager : TextToSpeech.OnInitListener {
     }
 
     /**
+     * Softly lowers ringtone volume during announcement so Nova's voice speaks through crystal clear.
+     */
+    private fun duckRingtone(context: Context) {
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+            audioManagerRef = WeakReference(audioManager)
+            if (!isDucked) {
+                originalRingtoneVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_RING)
+                if (originalRingtoneVolume > 1) {
+                    val duckedVolume = (originalRingtoneVolume * 0.35f).toInt().coerceAtLeast(1)
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_RING, duckedVolume, 0)
+                    isDucked = true
+                    Log.d(TAG, "Ringtone ducked from $originalRingtoneVolume to $duckedVolume for clear announcement")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not duck ringtone: ${e.message}")
+        }
+    }
+
+    /**
+     * Restores ringtone volume back to its original state.
+     */
+    private fun restoreRingtone() {
+        try {
+            if (isDucked && originalRingtoneVolume >= 0) {
+                val audioManager = audioManagerRef?.get()
+                audioManager?.setStreamVolume(android.media.AudioManager.STREAM_RING, originalRingtoneVolume, 0)
+                Log.d(TAG, "Ringtone restored to original volume: $originalRingtoneVolume")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not restore ringtone: ${e.message}")
+        } finally {
+            isDucked = false
+            originalRingtoneVolume = -1
+        }
+    }
+
+    /**
      * Called when an incoming call starts ringing.
      */
     fun onCallRinging(context: Context, rawNumber: String?) {
@@ -114,6 +156,7 @@ object CallAnnouncerManager : TextToSpeech.OnInitListener {
         isRinging = true
         acquireWakeLock(appContext)
         initTts(appContext)
+        duckRingtone(appContext)
 
         announceJob?.cancel()
         announceJob = scope.launch {
@@ -132,7 +175,10 @@ object CallAnnouncerManager : TextToSpeech.OnInitListener {
                 waitCount++
             }
 
-            if (!isRinging) return@launch
+            if (!isRinging) {
+                restoreRingtone()
+                return@launch
+            }
 
             applyLanguage(langCode)
 
@@ -144,6 +190,9 @@ object CallAnnouncerManager : TextToSpeech.OnInitListener {
                 // Wait while speaking + pause before next repeat
                 delay(4000L)
             }
+
+            // After speaking all repetitions, restore normal ringtone volume
+            restoreRingtone()
         }
     }
 
@@ -155,8 +204,9 @@ object CallAnnouncerManager : TextToSpeech.OnInitListener {
         announceJob?.cancel()
         announceJob = null
         stopSpeaking()
+        restoreRingtone()
         releaseWakeLock()
-        Log.d(TAG, "Call ringing stopped. Audio halted.")
+        Log.d(TAG, "Call ringing stopped. Audio halted and ringtone restored.")
     }
 
     /**

@@ -414,6 +414,9 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
                                     onMicButtonClick = { toggleListening() },
                                     onOpenProfile = {
                                         activeNavScreen = NovaScreen.PROFILE
+                                    },
+                                    onSuggestionClick = { command ->
+                                        onSpeechResult(command)
                                     }
                                 )
                             }
@@ -560,11 +563,49 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
         }
     }
 
+    private fun performHapticClick() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                vm?.defaultVibrator?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+            } else {
+                @Suppress("DEPRECATION")
+                val v = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v?.vibrate(android.os.VibrationEffect.createOneShot(35, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v?.vibrate(35)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun performHapticSuccess() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                vm?.defaultVibrator?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_DOUBLE_CLICK))
+            } else {
+                @Suppress("DEPRECATION")
+                val v = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v?.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 25, 40, 35), -1))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v?.vibrate(longArrayOf(0, 25, 40, 35), -1)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun toggleListening() {
         if (!checkPermissions()) {
             requestPermissions()
             return
         }
+
+        performHapticClick()
 
         if (assistantState.value == AssistantState.LISTENING) {
             speechHelper.stopListening()
@@ -598,6 +639,7 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
     // --- SpeechHelper.SpeechStateListener callbacks ---
 
     override fun onReadyForSpeech() {
+        performHapticClick()
         assistantState.value = AssistantState.LISTENING
         statusMessage.value = "Listening... Speak now!"
     }
@@ -611,6 +653,7 @@ class MainActivity : ComponentActivity(), SpeechHelper.SpeechStateListener {
     }
 
     override fun onSpeechResult(text: String) {
+        performHapticSuccess()
         userSpokenText.value = text
         assistantState.value = AssistantState.PROCESSING
         statusMessage.value = "Processing command..."
@@ -1376,7 +1419,8 @@ fun VoiceAssistantScreen(
     onUpdateEmoji: (String) -> Unit = {},
     onRequestPermissions: () -> Unit,
     onMicButtonClick: () -> Unit,
-    onOpenProfile: () -> Unit
+    onOpenProfile: () -> Unit,
+    onSuggestionClick: (String) -> Unit = {}
 ) {
     val darkBackground = Color(0xFF10121A)
     val cardBackground = Color(0xFF1B1E2B)
@@ -1666,7 +1710,7 @@ fun VoiceAssistantScreen(
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text(
+                                TypewriterText(
                                     text = assistantResponseText,
                                     fontSize = 16.sp,
                                     color = textLight,
@@ -1677,17 +1721,53 @@ fun VoiceAssistantScreen(
                     }
                 }
 
-                // 5. 3D Holographic AI Microphone Core & Audio Visualizer
+                // 3. Quick Action Suggestion Chips
+                val suggestions = listOf(
+                    "💬 કેમ છો Nova?",
+                    "😂 એક જોક સંભળાવો",
+                    "🔦 Torch ચાલુ કરો",
+                    "☀️ આજનું હવામાન",
+                    "⏰ 5 મિનિટ નું ટાઈમર",
+                    "🎵 YouTube પર ગીતો વગાડો"
+                )
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                ) {
+                    items(suggestions.size) { index ->
+                        val item = suggestions[index]
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF1E2433))
+                                .border(1.dp, Color(0xFF334155), RoundedCornerShape(20.dp))
+                                .clickable { onSuggestionClick(item) }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = item,
+                                color = Color(0xFFE0E6ED),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                // 4. 3D Holographic AI Microphone Core & Audio Visualizer
                 Holographic3DMicrophoneCore(
                     assistantState = assistantState,
                     rmsDb = rmsDb,
                     onMicButtonClick = onMicButtonClick,
-                    modifier = Modifier.padding(vertical = 16.dp)
+                    modifier = Modifier.padding(vertical = 12.dp)
                 )
 
                 // Quick Helper Hints
                 Text(
-                    text = "Say \"Hey Nova\" or tap mic to speak",
+                    text = "માઇક દબાવો અથવા ઉપરના પ્રશ્ન પર ક્લિક કરો",
                     fontSize = 12.sp,
                     color = Color.Gray,
                     textAlign = TextAlign.Center,
@@ -1697,6 +1777,36 @@ fun VoiceAssistantScreen(
         }
     }
 }
+}
+
+@Composable
+fun TypewriterText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White,
+    fontSize: androidx.compose.ui.unit.TextUnit = 16.sp,
+    fontWeight: FontWeight = FontWeight.Normal,
+    charDelayMs: Long = 16L
+) {
+    var displayedLength by remember(text) { mutableStateOf(0) }
+
+    LaunchedEffect(text) {
+        displayedLength = 0
+        if (text.isNotEmpty()) {
+            for (i in 1..text.length) {
+                displayedLength = i
+                delay(charDelayMs)
+            }
+        }
+    }
+
+    Text(
+        text = text.take(displayedLength),
+        modifier = modifier,
+        color = color,
+        fontSize = fontSize,
+        fontWeight = fontWeight
+    )
 }
 
 @Preview(showBackground = true)
